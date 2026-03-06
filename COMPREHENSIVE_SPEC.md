@@ -1,0 +1,866 @@
+# Charon Comprehensive Specification
+
+## Document Status
+
+- Status: Draft v1
+- Date: 2026-03-07
+- Purpose: Single source of truth for product behavior, architecture, interfaces, reliability rules, and delivery expectations.
+
+## 1. Product Overview
+
+Charon is a closed-loop university transit platform that combines:
+
+- a digital wallet for ride boarding
+- a high-concurrency fare-collection backend
+- a live fleet-tracking system
+- schedule-aware ETA and alerting
+- lightweight operations tooling for transit staff
+- a guardian-facing live route view for parents and other approved public viewers
+
+The project is designed to demonstrate strong backend engineering, distributed systems thinking, and practical product judgment for a single-university deployment.
+
+## 2. Product Goals
+
+- Prevent double-charging during flaky mobile network conditions.
+- Guarantee that wallet balances never go negative because of concurrent requests.
+- Show live bus positions on a low-cost mobile map stack.
+- Provide a privacy-safe live route view so guardians can see where the bus is.
+- Keep current-position fanout off PostgreSQL.
+- Archive telemetry for historical analysis, ETA, and alerts.
+- Provide clear admin tooling for finance and operations.
+- Showcase reliability patterns including idempotency, transactional outbox, and dead-letter queues.
+
+## 3. Non-Goals
+
+- Multi-university multi-tenant support.
+- Public consumer payment gateway in the first release.
+- Full route optimization or dispatch automation.
+- Enterprise-grade multi-region deployment.
+- Dynamic distance-based pricing in the first release.
+
+## 3.1 Architecture Choice
+
+Charon is intentionally designed as a modular monolith with worker processes, not a microservice platform.
+
+This is the correct fit for the intended deployment model:
+
+- self-hosted by individual institutes
+- small fixed-route fleets
+- low infrastructure budgets
+- limited on-site engineering capacity
+- strong need for operational clarity and low maintenance burden
+
+The architecture prioritizes:
+
+- financial correctness
+- live user experience
+- low operational complexity
+- low recurring cost
+- easy debugging by campus engineers
+
+The architecture does not optimize for SaaS-style multi-tenant growth, because that is not a project goal.
+
+## 3.2 Internal Extraction Seams
+
+Although Charon is a modular monolith, the codebase must maintain clean seams so parts can be extracted later if there is ever a real need.
+
+Required seams:
+
+- `auth` module owns login, tokens, and role checks.
+- `wallet` module owns accounts, transactions, ledger entries, overdraft, exemptions, and finance adjustments.
+- `boarding` module owns QR validation, fare resolution, boarding rules, and boarding events.
+- `routes` module owns routes, stops, timetables, service calendars, and service advisories.
+- `telemetry` module owns live ingest, replay handling, current position state, and historical archival contracts.
+- `eta` module owns stop ETA calculation and route-progress projection.
+- `alerts` module owns alert rules, alert state, and notification triggers.
+- `public_live_view` module owns guardian-safe projection of route state.
+- `outbox` module owns DB-originated event publication.
+
+Seam rules:
+
+- Each module owns its write paths and invariants.
+- Modules must not mutate another module's tables directly outside explicit service-layer interfaces.
+- Cross-module communication inside the monolith should use service interfaces and typed domain events, not ad hoc shared logic.
+- Event payloads must be versioned so async consumers can evolve safely.
+- Worker consumers must depend on contracts owned by the source module, not duplicate source-of-truth rules.
+- The public live view must consume a route-safe projection and must never reach into student or finance data directly.
+- API and worker processes are separate deployable processes even if they share the same repository and modules.
+
+Extraction triggers in the future would only be considered if one of these becomes true:
+
+- a workload clearly needs independent scaling
+- security or compliance requires hard runtime isolation
+- separate teams need independent release cycles
+- the deployment model changes beyond single-institute self-hosting
+
+## 4. Users and Roles
+
+### Student
+
+- logs in to the mobile app
+- views wallet balance and ledger history
+- scans bus QR code to pay fare
+- views live bus location and ETA
+- receives rider alerts
+
+### Driver
+
+- logs in to the mobile app
+- starts and ends a route session
+- displays the signed route-session QR code
+- streams telemetry every 3 seconds
+
+### Cashier
+
+- credits student wallets
+- processes refunds or corrections
+- views transaction history for finance support
+
+### Admin
+
+- manages routes, stops, schedules, and route sessions
+- monitors live fleet activity
+- reviews and resolves alerts
+- inspects dead-letter queues and requeues failed jobs
+
+### Public Viewer
+
+- is not an authenticated role
+- may access a deployer-enabled read-only live route view
+- can see route-level bus location, route progress, route-level ETA, and service advisories
+- cannot see wallet, student-specific ETA preferences, boarding history, or finance data
+- must never be presented as exact child tracking
+
+## 5. Product Surfaces
+
+### Student App (Flutter)
+
+- Wallet tab
+- QR scanner for boarding
+- Live map with MapTiler-backed cached tiles
+- Rider-specific stop ETA view
+- Rider alerts and notification center
+
+### Driver App (Flutter)
+
+- Route start and stop workflow
+- Static signed QR display for the active route session
+- Background telemetry stream
+- Driver status surface for current route session
+
+### Admin App (Next.js + TypeScript)
+
+- finance operations
+- route and stop management
+- timetable management
+- live fleet view
+- alert operations
+- DLQ inspection and requeue tooling
+
+### Public Live View
+
+- deployer-enabled guardian-facing route map
+- current bus position and route progress
+- route-level ETA for the bus, not student-specific ETA
+- service disruption and cancellation notices
+- privacy-safe public presentation with no student-specific personalization
+
+## 6. Scope by Release
+
+### Phase 1
+
+- auth and RBAC
+- wallet ledger and balance snapshots
+- idempotent QR boarding
+- transactional outbox
+- live telemetry fanout
+- telemetry archival
+- MapTiler map integration and tile caching
+- cashier-issued wallet credits and refunds with admin approval above configured limits
+
+### Phase 1.1
+
+- routes, stops, and timetables
+- weekly schedules with holiday and special-event exceptions
+- route sessions linked to schedules
+- PostGIS enablement
+- ETA engine
+- route deviation detection
+
+### Phase 1.2
+
+- admin alerts
+- rider alerts
+- limited push notifications for service cancellation and major disruption only
+- DLQ operations surface
+- guardian-facing public live route view
+
+## 7. Core Functional Requirements
+
+### 7.1 Authentication and Authorization
+
+- The system must support role-based login for student, driver, cashier, and admin users.
+- The initial credential model must use institutional ID plus password.
+- Student users log in with student ID plus password.
+- The backend must issue JWT access tokens and refresh tokens.
+- Protected endpoints must enforce role checks.
+- Driver-only endpoints must validate that the caller is assigned to the active route session when required.
+
+### 7.2 Wallet, Ledger, and Fare Policy
+
+- All money values must be stored in integer minor units.
+- Every financial change must create an immutable `transaction`.
+- Every transaction must create balanced debit and credit `ledger_entries`.
+- `wallet_accounts.available_balance_minor` must be updated inside the same database transaction for fast balance reads.
+- Wallet history must be queryable by user.
+- The fare model must support route-level flat fares and zero-fare deployments or routes.
+- Each route session must resolve its fare from the assigned route configuration.
+- Students may have a deployer-configurable small overdraft limit.
+- Students may also be marked as fare-exempt.
+- Credits and refunds must be cashier-driven at a campus counter, with room for future third-party integration.
+- Cashiers may issue credits or refunds directly up to a configured limit.
+- Credits or refunds above the cashier limit must require admin approval.
+- Every manual balance adjustment must record full before and after values, reason code, actor, and approval chain if any.
+
+### 7.3 Boarding Flow
+
+- A driver must start a route session before boarding payments are allowed.
+- The backend must issue a signed QR payload containing `bus_id`, `route_session_id`, `issued_at`, and signature.
+- The student app must send an `Idempotency-Key` with each boarding attempt.
+- The backend must use Redis to store idempotency state scoped by `actor_id + Idempotency-Key`.
+- The backend must lock the student wallet row with `SELECT ... FOR UPDATE` before validating funds.
+- A boarding charge is allowed when the post-charge balance stays within the configured overdraft limit.
+- Fare-exempt students must be allowed to board without a student wallet debit, while still generating an auditable boarding record and policy decision.
+- The system must prevent accidental duplicate charging on the same route session using a uniqueness rule on `student_id + route_session_id`.
+- The system assumes one boarding charge per student per trip.
+
+### 7.4 Telemetry and Live Map
+
+- The driver app must send telemetry every 3 seconds over WebSocket.
+- Telemetry payload must include `route_session_id`, `bus_id`, `lat`, `lng`, `speed_kph`, `heading`, `accuracy_m`, and `recorded_at`.
+- The API must publish live telemetry through Redis Pub/Sub.
+- The API must maintain last-known bus positions in Redis.
+- Student clients must subscribe to route updates over WebSocket.
+- Live telemetry must not require synchronous PostgreSQL writes.
+- If connectivity drops, the driver app must buffer at least 5 minutes of telemetry locally and replay it in order once the connection returns.
+- Replayed telemetry must preserve original timestamps.
+- Replayed stale telemetry must still be archived, but it must not be broadcast as fresh live movement if it is too old for real-time display.
+
+### 7.5 Map Rendering and Tile Caching
+
+- The mobile apps must not use Google Maps as the base map provider.
+- The student app must use MapTiler-backed tiles and styles.
+- Map tiles must be cached on-device.
+- The cache must be bounded with LRU-style eviction.
+- The app must prewarm the cache for campus bounds and all configured route corridors.
+- The map experience must remain usable during brief network loss by serving cached tiles.
+- Telemetry overlays must remain provider-agnostic so the map provider can be changed later without breaking the live location pipeline.
+
+### 7.6 Telemetry Archival
+
+- Raw telemetry must be published to RabbitMQ for durable async handling.
+- The archiver worker must batch writes in memory.
+- The archiver worker must bulk insert every 60 seconds or 1000 points, whichever comes first.
+- Historical telemetry must be queryable for analytics, alerts, and future reporting.
+
+### 7.7 Schedules and ETA
+
+- Admin users must create and edit routes, stops, stop order, trip templates, and scheduled stop times.
+- The scheduling model must support a weekly timetable plus holiday and special-event exceptions.
+- Admin users must be able to mark service as unavailable for planned closures or disruptions.
+- A route session must be linked to a scheduled trip once scheduling is enabled.
+- ETA for students must be stop-specific and tied to the rider's selected stop.
+- ETA for the public live view must be route-level only and not personalized.
+- ETA must be computed from scheduled stop times plus live delay.
+- If telemetry is stale for 30 seconds, ETA must fall back to scheduled time and be flagged as stale.
+
+### 7.8 Route Deviation
+
+- The system must identify when a vehicle is more than 200 meters away from its route corridor for 3 consecutive telemetry points.
+- Spatial lookups must use PostGIS rather than only application-layer math.
+
+### 7.9 Alerts and Notifications
+
+Admin alerts:
+
+- route deviation
+- late departure
+- major delay
+- service disruption
+- service cancellation
+- driver offline
+
+Rider alerts:
+
+- bus approaching selected stop
+- major delay
+- service disruption
+- service cancellation
+
+Delivery requirements:
+
+- only students and admins receive alerts in v1
+- alerts must appear in-app in real time
+- push notifications are limited in v1 to service cancellation and major service disruption alerts
+- alerts must support creation, deduplication, and clear semantics
+
+### 7.10 Guardian Live View
+
+- The system must provide a public-facing live route view built from the same telemetry pipeline as the student experience.
+- The public view must show active buses, route progress, route-level ETA, and active service advisories.
+- The public view must never expose wallet data, student identities, boarding events, or student-specific ETA preferences.
+- The public view must be safe for guardians and parents to understand where a bus is, but it must not claim to show a child’s exact current location.
+- The public view must degrade gracefully when telemetry is stale by marking the bus as stale or recently updated rather than showing misleading fresh movement.
+- The public view must be deployer-controlled so the university can disable it if needed.
+
+## 8. Key Workflows
+
+### 8.1 Student Boarding Workflow
+
+1. Driver starts route session.
+2. Backend creates signed QR payload for that session.
+3. Student scans QR and sends `POST /boardings` with `Idempotency-Key`.
+4. API checks Redis idempotency state.
+5. API resolves the applicable route fare and rider exemption or overdraft policy.
+6. API opens a Postgres transaction.
+7. API locks the wallet account row.
+8. API validates duplicate-boarding rule and financial allowance.
+9. API inserts the financial transaction and ledger entries when money is being charged.
+10. API updates balance snapshots when money moves.
+11. API inserts the boarding event and fare decision record.
+12. API inserts the outbox event.
+13. API commits and stores the final response in Redis.
+
+### 8.2 Telemetry Workflow
+
+1. Driver app sends telemetry over WebSocket every 3 seconds.
+2. If offline, driver app stores telemetry locally until reconnect.
+3. API validates route session and payload shape.
+4. Fresh telemetry is published through Redis Pub/Sub and updates last-known position in Redis.
+5. Raw telemetry payloads, including replayed points, are published to RabbitMQ.
+6. Archiver worker batches and bulk writes telemetry to PostgreSQL.
+
+### 8.3 Outbox Workflow
+
+1. Business transaction commits in PostgreSQL.
+2. Matching outbox row commits in the same transaction.
+3. Outbox publisher worker polls pending rows using `FOR UPDATE SKIP LOCKED`.
+4. Worker publishes to RabbitMQ with publisher confirms.
+5. Worker marks the outbox row as published.
+6. Consumers use `event_id` for deduplication.
+
+### 8.4 Alert Workflow
+
+1. Telemetry, schedule, or route-session events enter worker processing.
+2. Alert evaluator applies rules and thresholds.
+3. New or updated alert is stored in PostgreSQL.
+4. Alert state change produces an outbox event.
+5. Notification dispatcher sends in-app and optional push delivery.
+
+### 8.5 Guardian Live View Workflow
+
+1. Public viewer opens the live route page.
+2. Frontend requests public route list, active route sessions, latest bus positions, and advisories.
+3. Frontend subscribes to public-safe live route updates.
+4. API pushes route-level telemetry and ETA updates only.
+5. If a bus becomes stale, the view marks the update age and service state rather than pretending the bus is still moving live.
+
+## 9. System Architecture
+
+## 9.1 Runtime Components
+
+- `student_app` (Flutter)
+- `driver_app` (Flutter)
+- `admin_app` (Next.js + TypeScript)
+- `public_live_view` (optional Next.js public route or page)
+- `api` (Go)
+- `worker` (Go)
+- `postgres`
+- `redis`
+- `rabbitmq`
+- `reverse-proxy`
+- `MapTiler`
+- `FCM`
+
+### 9.2 Responsibility Split
+
+`api` handles:
+
+- auth
+- synchronous wallet and boarding flows
+- WebSocket connections
+- live telemetry fanout
+- admin CRUD APIs
+- public route-status and live-view APIs
+
+`worker` handles:
+
+- outbox publishing
+- telemetry archival
+- alerts evaluation
+- notifications dispatch
+
+This split is the primary operational seam in the first version:
+
+- `api` remains optimized for user-facing latency
+- `worker` remains optimized for durable background processing
+
+`postgres` handles:
+
+- financial source of truth
+- schedules and route data
+- alert history
+- historical telemetry
+
+`redis` handles:
+
+- idempotency state
+- current bus positions
+- live pub/sub channels
+
+`rabbitmq` handles:
+
+- durable async telemetry
+- durable async alerting
+- durable async notifications
+- outbox-delivered domain events
+
+## 10. Data Model
+
+### 10.1 Core Tables
+
+`users`
+
+- id
+- role
+- name
+- institutional_id
+- status
+- fare_exempt
+
+`wallet_accounts`
+
+- id
+- user_id
+- available_balance_minor
+- overdraft_limit_minor
+- status
+- updated_at
+
+`transactions`
+
+- id
+- type
+- amount_minor
+- status
+- actor_id
+- route_session_id nullable
+- created_at
+
+`ledger_entries`
+
+- id
+- transaction_id
+- account_id
+- direction
+- amount_minor
+- created_at
+
+`boarding_events`
+
+- id
+- student_id
+- route_session_id
+- transaction_id
+- fare_minor
+- fare_policy_type
+- charge_mode
+- exemption_reason_code nullable
+- created_at
+
+`outbox_events`
+
+- event_id
+- aggregate_type
+- aggregate_id
+- event_type
+- payload_json
+- attempt_count
+- available_at
+- published_at nullable
+- last_error nullable
+
+`routes`
+
+- id
+- code
+- name
+- fare_policy_type
+- fare_minor
+- status
+
+`stops`
+
+- id
+- name
+- position
+
+`route_stop_sequences`
+
+- id
+- route_id
+- stop_id
+- stop_order
+
+`trip_templates`
+
+- id
+- route_id
+- service_calendar_id
+- name
+- status
+
+`trip_stop_times`
+
+- id
+- trip_template_id
+- stop_id
+- scheduled_time
+
+`route_sessions`
+
+- id
+- trip_template_id nullable in Phase 1
+- bus_id
+- driver_id
+- started_at
+- ended_at nullable
+- status
+
+`telemetry_points`
+
+- id
+- route_session_id
+- bus_id
+- position
+- is_replayed
+- speed_kph
+- heading
+- accuracy_m
+- recorded_at
+- received_at
+
+`alerts`
+
+- id
+- type
+- severity
+- target_type
+- target_id
+- status
+- opened_at
+- closed_at nullable
+
+`finance_adjustments`
+
+- id
+- wallet_account_id
+- transaction_id nullable
+- adjustment_type
+- requested_by
+- approved_by nullable
+- approval_status
+- reason_code
+- before_balance_minor
+- after_balance_minor
+- created_at
+
+`service_calendars`
+
+- id
+- route_id
+- weekday_mask
+- effective_from
+- effective_to nullable
+
+`service_exceptions`
+
+- id
+- service_calendar_id
+- service_date
+- exception_type
+- reason_code
+
+`service_advisories`
+
+- id
+- route_id nullable
+- advisory_type
+- message
+- starts_at
+- ends_at nullable
+
+`device_tokens`
+
+- id
+- user_id
+- platform
+- token
+- push_enabled
+
+### 10.2 Invariants
+
+- every financial transaction balances to zero
+- every boarding resolves exactly one fare decision, whether charged, exempt, or zero-fare
+- wallet balance snapshot and ledger entries change in the same transaction
+- outbox event exists for every DB-originated event that must leave the system
+- no duplicate boarding charge for the same student and route session
+- manual credits and refunds record actor, before and after values, reason code, and approval chain where applicable
+- module boundaries remain enforceable and no cross-module direct table mutation bypasses service rules
+- Redis is never the financial source of truth
+
+## 11. Interface Contracts
+
+### 11.1 REST Endpoints
+
+Auth:
+
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+
+Student wallet:
+
+- `GET /wallet/balance`
+- `GET /wallet/transactions`
+- `POST /boardings`
+
+Admin finance:
+
+- `POST /admin/wallets/{id}/credits`
+- `POST /admin/wallets/{id}/refunds`
+
+Routes and schedules:
+
+- `GET /routes`
+- `GET /routes/{id}/stops`
+- `GET /routes/{id}/eta`
+- `POST /admin/routes`
+- `POST /admin/stops`
+- `POST /admin/trips`
+
+Route sessions:
+
+- `POST /route-sessions/start`
+- `POST /route-sessions/end`
+
+Public live view:
+
+- `GET /public/routes`
+- `GET /public/routes/{id}/live`
+- `GET /public/advisories`
+
+### 11.2 WebSocket Message Types
+
+Driver to API:
+
+- `driver.telemetry`
+
+Student to API:
+
+- `student.subscribe_route`
+- `student.unsubscribe_route`
+
+API to clients:
+
+- `telemetry.update`
+- `eta.update`
+- `alert.created`
+- `alert.cleared`
+- `public.route_update`
+- `public.advisory_update`
+
+### 11.3 Event Types
+
+Examples of DB-originated domain events:
+
+- `wallet.transaction.created`
+- `wallet.transaction.completed`
+- `wallet.credit.issued`
+- `wallet.refund.issued`
+- `route_session.started`
+- `route_session.ended`
+- `schedule.updated`
+- `alert.opened`
+- `alert.closed`
+
+## 12. Reliability and Failure Handling
+
+### 12.1 Idempotency
+
+- Redis stores `PROCESSING`, `COMPLETED`, or `FAILED`.
+- Idempotency keys have a 24-hour TTL.
+- Duplicate requests must return the stored result or a bounded retry response.
+
+### 12.2 Concurrency Control
+
+- Boarding flow uses row-level locking on the student wallet account.
+- Low balance plus burst traffic must never create negative balances.
+
+### 12.3 Transactional Outbox
+
+- No DB-originated event is published directly from the request handler.
+- All such events must leave via the outbox worker.
+
+### 12.4 RabbitMQ Retry and DLQ Rules
+
+- `telemetry.archiver`, `alerts.evaluate`, and `notifications.dispatch` each get dedicated retry and DLQ handling.
+- After 3 failed attempts, the message must move to its queue-specific DLQ.
+- Admin users must be able to inspect and requeue failed messages.
+
+### 12.5 Map Resilience
+
+- Cached tiles must continue to serve the visible campus map during short network loss.
+- Loss of live telemetry should not break the base map.
+- Loss of base map refresh should not stop telemetry overlays from updating.
+
+### 12.6 Public View Safety and Freshness
+
+- Public live updates must be filtered to route-safe fields only.
+- Public route state must include update age so stale telemetry is visible to the viewer.
+- The public view must not infer, calculate, or display any student-specific movement.
+
+### 12.7 Telemetry Replay
+
+- Driver apps must replay buffered telemetry in order after reconnect.
+- Replayed telemetry must preserve original `recorded_at`.
+- Replayed telemetry older than the live-display freshness window should be archived without being rebroadcast as current movement.
+
+### 12.8 Retention
+
+- Historical telemetry must be retained for 30 days in the primary demo environment.
+- Retention cleanup must not interfere with current operational queries.
+
+## 13. Security Requirements
+
+- JWT signing keys and third-party secrets must be stored in environment-backed secret configuration.
+- Route-session QR codes must be signed and validated server-side.
+- Admin and cashier endpoints must enforce strict RBAC.
+- Audit trails must exist for credits, refunds, and route-session changes.
+- PII must be minimized in logs and message payloads.
+- The guardian live view must expose only route-level operational data and no student-identifying information.
+
+## 14. Performance Targets
+
+- The design target is 100 concurrent boarding attempts against a single bus route session without double-charge or negative-balance failures.
+- Boarding requests under normal load should complete in sub-second time.
+- Live telemetry fanout should feel real time to the student map.
+- Telemetry archival must not write per ping directly to PostgreSQL.
+- Map tile caching must reduce repeated mobile tile fetches for common campus views.
+
+## 15. Operational Visibility
+
+The system should expose at least:
+
+- request latency
+- idempotency hit rate
+- boarding success and failure counts
+- overdraft usage rate
+- outbox backlog
+- RabbitMQ queue depth
+- DLQ counts
+- telemetry ingest rate
+- telemetry replay volume
+- active WebSocket connection count
+- public live-view connection count
+- stale route session count
+
+Operational simplicity is a first-class requirement:
+
+- a campus engineer should be able to diagnose queue backlog, stale telemetry, failed credits, and live-map issues without tracing through a large distributed system
+- deployment and recovery should remain understandable with a small set of processes and clear logs
+
+## 16. Testing and Validation
+
+### 16.1 Financial Tests
+
+- concurrent boarding load tests
+- same-key retry tests
+- different-key low-balance contention tests
+- overdraft threshold tests
+- exempt-rider boarding tests
+- ledger invariant tests
+- admin credit and refund tests
+
+### 16.2 Reliability Tests
+
+- API crash after DB commit but before event publication
+- outbox replay and recovery
+- worker restart during backlog processing
+- poison-message routing to DLQ
+
+### 16.3 Telemetry and Map Tests
+
+- multiple active buses and subscribers
+- offline driver buffering and ordered replay
+- brief network loss with cached tile fallback
+- telemetry archival batching
+- stale ETA fallback
+- route deviation detection
+- public live view freshness and privacy filtering tests
+
+### 16.4 Alert Tests
+
+- speeding alert
+- driver offline alert
+- route deviation alert
+- late departure alert
+- bus approaching stop alert
+- major delay alert
+- alert clear behavior
+
+## 17. Delivery Plan
+
+- Use [ARCHITECTURE_PLAN.md](e:\Projects\Charon\ARCHITECTURE_PLAN.md) as the shorter architecture companion.
+- Use [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md) as the delivery timeline.
+- Use [ENGINEERING_STORY.md](e:\Projects\Charon\ENGINEERING_STORY.md) as the running decision and reasoning log.
+- Keep this document at system level; create a dedicated API specification separately.
+
+## 18. Acceptance Criteria
+
+The project is successful when all of the following are true:
+
+- a student can board exactly once under retry-heavy network conditions
+- wallet balances remain correct under concurrent request bursts
+- route-based flat fare and zero-fare policies can be configured per deployment
+- small overdraft and exempt-student rules behave as configured and remain auditable
+- the live map shows buses without PostgreSQL being in the synchronous path
+- the map stack uses cached MapTiler tiles instead of an expensive Google Maps dependency
+- driver telemetry can buffer offline and replay without corrupting current live position
+- DB-originated events survive API crashes because of the outbox
+- malformed worker messages do not block the system because of DLQs
+- ETA and route deviation logic work using PostGIS-backed spatial queries
+- holiday closures and special-event schedule changes can be represented
+- admin users can operate finance, schedules, alerts, and failed async jobs from one coherent surface
+- guardians can open a public-safe live route view to see where the bus is and whether service is disrupted
+- the system is polished enough to serve as a portfolio-ready showcase
+
+## 19. Defaults and Assumptions
+
+- single university deployment
+- open-source project intended for institute self-hosting, not SaaS growth
+- institutional ID plus password login
+- route-based flat fare or zero-fare policy in the first release, with no distance pricing yet
+- cashier counter funding with future third-party credit-system integration left open
+- small deployer-configurable overdraft support
+- optional fare exemptions for eligible students
+- MapTiler-backed map stack with client-side tile caching
+- cached campus and all-route map coverage
+- PostGIS introduced when schedule-aware spatial features begin
+- weekly timetable plus exception dates and service advisories
+- in-app alerts by default, with push reserved for service cancellation and major disruption
+- guardian live view is route-level only and never student-tracking
+- 30-day telemetry retention in the demo environment
+- RabbitMQ for durable async workflows
+- Redis for ephemeral hot-path state
+- PostgreSQL as the source of truth
