@@ -259,6 +259,7 @@ This document complements:
 - [COMPREHENSIVE_SPEC.md](e:\Projects\Charon\COMPREHENSIVE_SPEC.md)
 - [BUS_QR_SPEC.md](e:\Projects\Charon\BUS_QR_SPEC.md)
 - [ADMIN_SPEC.md](e:\Projects\Charon\ADMIN_SPEC.md)
+- [DRIVER_SERVICE_API_SPEC.md](e:\Projects\Charon\DRIVER_SERVICE_API_SPEC.md)
 - [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md)
 
 If there is a conflict for driver-app behavior, this document should be treated as the more specific source.

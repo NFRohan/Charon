@@ -23,10 +23,12 @@ The system is designed to prove strong system design judgment without unnecessar
 
 ### Student App (Flutter)
 
+- Home-first mobile experience with quick access to boarding, balance, favorites, and advisories.
 - Wallet balance and recent ledger activity.
-- QR scan to pay boarding fare.
+- QR scan to pay boarding fare with manual bus-code fallback.
+- Sponsored boarding and emergency-ride fallback for temporary student connectivity loss.
 - Live route map with moving buses, rendered with MapTiler-backed cached tiles.
-- ETA visibility and rider alerts.
+- Stop-specific ETA, stop favorites, and rider alerts.
 
 ### Driver App (Flutter)
 
@@ -112,8 +114,12 @@ This keeps the platform operationally realistic while staying compact enough for
 - Boarding is rejected if the bus has no boardable service instance or has conflicting active sessions.
 - Telemetry freshness is not a hard boarding gate.
 - Manual numeric bus-code fallback is always available.
+- Boarding uses three fallback layers: direct self-pay, sponsored boarding by another student, and bounded emergency ride permits for solo no-data cases.
 - Unique constraint on `student_id + route_session_id` prevents accidental repeat charge during the same bus run.
-- Initial fare policy supports route-level flat fares and zero-fare routes or deployments.
+- Student selects a stop before fare confirmation.
+- Initial fare policy supports route-level flat fares, selected-stop fares, and zero-fare routes or deployments.
+- Sponsored boarding in v1 allows one payer to cover self plus one additional rider in one atomic transaction while preserving rider-level boarding events.
+- Emergency ride permits are pre-issued, device-bound, one-time offline fallbacks that are redeemed later without turning the wallet into a general offline-sync system.
 - Small overdraft is deployer-configurable.
 - Eligible students may be marked as fare-exempt.
 
@@ -291,6 +297,8 @@ REST endpoints:
 - `POST /auth/logout`
 - `GET /wallet/balance`
 - `GET /wallet/transactions`
+- `POST /wallet/emergency-voucher/issue`
+- `GET /boardings/preview`
 - `POST /boardings`
 - `POST /admin/wallets/{id}/credits`
 - `POST /admin/wallets/{id}/refunds`
@@ -302,6 +310,8 @@ REST endpoints:
 - `POST /admin/trips`
 - `POST /route-sessions/start`
 - `POST /route-sessions/end`
+- `GET /public/routes/active`
+- `GET /public/routes/{route_code}/live`
 
 WebSocket message types:
 
@@ -319,9 +329,11 @@ WebSocket message types:
 
 - auth and RBAC
 - wallet ledger and account snapshots
-- route-level fare configuration, overdraft support, and fare exemptions
+- minimal route and stop registry for boarding and fare resolution
+- route-level or selected-stop fare configuration, overdraft support, and fare exemptions
 - bus registry and durable QR issuance
 - idempotent QR boarding
+- sponsored boarding and emergency ride permits
 - transactional outbox
 - MapTiler provider choice and Flutter tile-cache setup
 - live telemetry fanout
@@ -331,7 +343,7 @@ WebSocket message types:
 ### Phase 1.1
 
 - PostGIS enablement
-- route, stop, and timetable management
+- full route, stop, and timetable management
 - holiday and special-event schedule exceptions
 - route sessions linked to schedules
 - ETA engine
@@ -350,6 +362,8 @@ WebSocket message types:
 - Concurrent boarding tests with dozens of simultaneous riders.
 - Duplicate request tests using the same idempotency key.
 - Low-balance contention tests with many distinct request keys.
+- Sponsored boarding atomicity tests.
+- Emergency ride permit issuance and redemption tests.
 - Ledger invariant tests ensuring balanced entries.
 - Outbox crash-recovery tests for dual-write safety.
 - Telemetry load tests with multiple buses and many subscribers.
@@ -361,7 +375,8 @@ WebSocket message types:
 
 - Single university only.
 - Institutional ID plus password login.
-- Route-level flat fare or zero-fare policy initially.
+- Route-level flat fare, selected-stop fare, or zero-fare policy initially.
+- Three-layer boarding fallback: direct self-pay, sponsored boarding, and bounded emergency ride permits.
 - Admin-managed schedules are the source of truth.
 - Wallet funding starts with cashier-issued credits and refunds, with configurable approval limits and room for external campus credit integration later.
 - Base map rendering uses MapTiler with on-device caching instead of Google Maps.

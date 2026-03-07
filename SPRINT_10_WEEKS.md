@@ -52,7 +52,7 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 - Create `transactions`, `ledger_entries`, and `wallet_accounts` schema.
 - Implement double-entry ledger rules using integer minor units.
 - Add balance snapshot updates inside the same transaction.
-- Add route-level fare configuration, overdraft limits, and fare-exemption support.
+- Add route-level and selected-stop fare configuration, overdraft limits, and fare-exemption support.
 - Add finance-adjustment audit fields for before and after values, reason codes, and approval trail.
 - Build wallet read APIs for balance and transaction history.
 - Seed test users and starting balances.
@@ -76,6 +76,9 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 - Build schedule-backed service windows with `30 minute` early boarding and `15 minute` late grace.
 - Build route-session and service-instance binding so the scanned bus resolves to the current boardable run rather than a driver-held QR.
 - Implement `POST /boardings` with Redis-backed idempotency state.
+- Add student stop selection, favorite-stop shortcuts, and fare preview before final confirmation.
+- Add sponsored boarding for self plus one additional rider with atomic rider-level event creation.
+- Add emergency ride permit issuance, local consumption rules, and backend redemption flow.
 - Add manual numeric bus-code fallback and scan-audit logging.
 - Add `SELECT ... FOR UPDATE` locking on the student wallet account.
 - Insert `boarding_events`, fare-decision tracking, and unique duplicate-prevention constraints.
@@ -88,6 +91,8 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 - Driver can start a session without needing to display a phone for boarding.
 - Durable admin-issued bus QR works for boarding when the bus is in an active route session.
 - Boarding still works when telemetry is stale, as long as the schedule-backed service window is valid.
+- Student can select a stop and see the resolved fare before confirming payment.
+- A student who loses internet can still board through a sponsor or a valid emergency ride permit.
 - Manual numeric bus-code fallback works through the same authorization path.
 
 ## Week 4: Transactional Outbox and Reliable Domain Events
@@ -126,6 +131,7 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 - Buffer telemetry locally for at least 30 minutes during connectivity loss and replay it in order after reconnect.
 - Add offline attach or start support when the relevant service data is already cached locally.
 - Add battery-optimization risk detection and active-service state restoration after app restart.
+- Build the student app shell with `Home`, `Wallet`, `Map`, `Alerts`, and `Profile`.
 - Implement student route subscription WebSocket flow.
 - Render moving buses on the student map using MapTiler-backed tiles.
 - Implement local tile caching and prewarm the campus viewport and primary routes.
@@ -254,6 +260,8 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 ## Acceptance Checklist for the Full 10 Weeks
 
 - Student can log in, view balance, scan QR, and pay exactly once.
+- Student can select a stop for boarding and receive stop-specific ETA.
+- Student can still complete boarding when solo and temporarily offline through a bounded emergency permit path.
 - Driver can start a route session and stream telemetry continuously.
 - Admin can credit wallets, manage routes and schedules, and inspect alerts.
 - Guardians can use the public live route page without seeing student-specific data.

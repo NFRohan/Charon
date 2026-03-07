@@ -97,7 +97,7 @@ Why this was done:
 Work completed:
 
 - Locked student ID plus password for students and employee ID plus password for drivers as the launch login model.
-- Replaced the simple flat-fare assumption with route-level flat fare or zero-fare policy support.
+- Replaced the simple flat-fare assumption with route-level flat fare, selected-stop fare, or zero-fare policy support.
 - Added small overdraft support and optional fare exemptions.
 - Simplified the driver flow so route assignment is admin-managed and the driver mainly presses start.
 - Added offline telemetry buffering and replay.
@@ -213,6 +213,99 @@ Why this was done:
 - Personal Android phones and aggressive background-kill behavior are the real environmental constraints.
 - The app should optimize for reliable telemetry and low cognitive load, not feature richness.
 
+### 14. Student app operating model defined
+
+Work completed:
+
+- Defined the student app as a real cross-platform target for both Android and iOS.
+- Made the app home-first with `Home`, `Wallet`, `Map`, `Alerts`, and `Profile` instead of a dedicated pay tab.
+- Added stop selection to every boarding attempt so the same interaction supports stop-specific ETA and configurable fare rules.
+- Kept boarding retry behavior manual so the student stays in control when the network is weak.
+- Kept top-up guidance cashier-based instead of pretending online funding exists before it does.
+
+Why this was done:
+
+- The student app is the most visible user-facing part of the project and needs to feel like a finished product, not just a wallet screen.
+- Student device mix is broader than the driver-device mix, so iOS matters here even though it does not matter for the driver app yet.
+- Stop selection creates one consistent boarding input that works for flat fares now and more flexible campus fare models later.
+- Manual retry keeps the payment experience understandable instead of hiding request uncertainty behind client-side automation.
+
+### 15. Student boarding fallback model defined
+
+Work completed:
+
+- Added a three-layer boarding fallback model of direct self-pay, sponsored boarding, and emergency ride permits.
+- Defined sponsored boarding as one connected student paying for self plus one additional rider in one atomic transaction.
+- Added a bounded emergency ride permit path instead of full offline wallet sync.
+- Kept rider-level boarding events and duplicate protection intact even when one payer covers multiple riders.
+
+Why this was done:
+
+- A student losing internet at boarding is a real field case, and "find a friend" is not enough as the only backup.
+- Full offline wallet synchronization would make the financial model much riskier and more complex than the project needs.
+- Sponsored boarding fits real campus behavior, while emergency permits cover the no-friend solo case without breaking the architecture.
+- The fallback needed to stay consistent with the ledger, idempotency, and schedule-backed boarding rules already chosen.
+
+### 16. First wire-level API contract defined
+
+Work completed:
+
+- Added the first dedicated API spec document for the critical flows only.
+- Locked the API to unversioned paths in v1 with one unified login endpoint.
+- Chose server-calculated `GET /boardings/preview` plus one unified `POST /boardings` with mode switching.
+- Chose raw QR payload submission, rich error envelopes, limit-and-offset pagination, and one shared WebSocket per app.
+- Kept the public live API anonymous but limited it to pre-shaped public models only.
+
+Why this was done:
+
+- The project had enough product detail that implementation without a wire contract would start creating avoidable drift between Flutter, Go, and the public view.
+- The API needed to reflect the actual constraints already chosen: bad mobile networks, server-owned fare logic, rider-safe boarding flows, and privacy-safe public route data.
+- A first-draft API spec keeps focus on the risky flows first instead of pretending the whole admin surface needs to be frozen before coding begins.
+
+### 17. Deferred API surface captured explicitly
+
+Work completed:
+
+- Added a separate noncritical API document for the deferred endpoint inventory.
+- Captured student quality-of-life APIs, driver attachment and recovery APIs, admin CRUD, alerts, audit logs, imports or exports, and technical-admin ops endpoints.
+- Split the API planning into critical-path wire contract versus backlog contract instead of leaving the rest as vague future work.
+
+Why this was done:
+
+- Once implementation starts, undocumented secondary APIs are easy to postpone until they quietly disappear from scope.
+- The project already has enough surface area that "we will remember later" is not a reliable planning strategy.
+- A backlog-style API inventory keeps the implementation roadmap honest without forcing every low-risk endpoint to be frozen in full detail up front.
+
+### 18. Admin and cashier API contract locked next
+
+Work completed:
+
+- Added a dedicated admin and cashier API contract document instead of leaving that domain in backlog form.
+- Split the shared web-app API into dashboard, student policy, wallet ops, buses, routes, fare policy, schedules, service instances, alerts, advisories, audit, and import or export sections.
+- Kept deployer-controlled fare policy flexibility so a route can use flat pricing, zero-fare, or stop-based matrices.
+- Added the admin-only `force-close` service-instance endpoint so intervention remains auditable and separate from driver start and end actions.
+
+Why this was done:
+
+- The shared admin app is too large and too operationally important to remain only a backlog list once implementation planning starts.
+- Cashier and admin behavior affects finance correctness, bus onboarding, route setup, and service reliability, so it benefits from a tighter contract before coding.
+- Fare configuration needed to stay flexible because different institutes may want route-flat or stop-based pricing without changing the boarding API shape.
+
+### 19. Remaining API domains were converted from backlog to contracts
+
+Work completed:
+
+- Added a dedicated driver and service-attachment API contract.
+- Added a dedicated student self-service API contract.
+- Added a dedicated technical-admin system-ops API contract.
+- Reduced the role of the noncritical API document from "missing major domains" to a true backlog and future-surface tracker.
+
+Why this was done:
+
+- At this point the project has enough wire-level definition to move into implementation without large blind spots.
+- Driver attachment, device-health reporting, student favorites and settings, and DLQ tooling all affect real implementation structure even if they are not the first demo clicks.
+- Finishing the contract set now is cheaper than discovering missing edge cases halfway through coding.
+
 ## Decision Log
 
 ### Decision 001: Go modular monolith plus workers
@@ -326,7 +419,7 @@ Tradeoff accepted:
 Decision:
 
 - Use student ID plus password for students and employee ID plus password for drivers at launch.
-- Support route-level flat fare and zero-fare policies.
+- Support route-level flat fare, selected-stop fare, and zero-fare policies.
 - Allow small overdraft and optional fare exemptions.
 - Keep the driver start flow extremely simple through admin-managed route setup.
 - Support holiday closures, special-event schedule overrides, and public-facing service disruption notices.
@@ -507,6 +600,122 @@ Tradeoff accepted:
 
 - Fleet movement is slightly less granular than the earlier 3-second concept.
 - That is acceptable because the small campus fleet and bounded route network do not need higher-frequency telemetry badly enough to justify the extra battery cost.
+
+### Decision 017: Student app is home-first, cross-platform, and stop-aware
+
+Decision:
+
+- Support Android and iOS for the student app in v1.
+- Use a home-first app shape with `Home`, `Wallet`, `Map`, `Alerts`, and `Profile`.
+- Keep `Scan to Pay` as a prominent action instead of dedicating a full tab to payment.
+- Require stop selection during boarding so fare and ETA both operate on the same rider input.
+
+Reasoning:
+
+- Students are more likely than drivers to use a broad device mix, including iPhones.
+- A separate pay tab would take permanent navigation space for a single action that can be reached cleanly from home and wallet.
+- Stop selection gives the product a realistic path to support both flat and stop-based campus fare systems without jumping to GPS-derived pricing.
+- The same selected stop also improves ETA usefulness immediately, so the extra tap carries real product value.
+
+Tradeoff accepted:
+
+- Boarding has one more explicit user input than a bare scan-and-pay flow.
+- That is acceptable because the stop choice improves both fare accuracy and ETA relevance while still keeping the flow simple enough for daily use.
+
+### Decision 018: Boarding fallback stays bounded instead of turning the wallet fully offline
+
+Decision:
+
+- Use a three-layer fallback model: normal online self-pay, sponsored boarding, and emergency ride permits.
+- Let sponsored boarding cover self plus one additional rider in v1.
+- Use pre-issued, device-bound, one-time emergency permits for the solo no-internet case.
+
+Reasoning:
+
+- Student connectivity failure at boarding is common enough to deserve a first-class product answer.
+- A fully offline-sync wallet would create a much larger correctness and abuse surface than the project needs.
+- Sponsored boarding mirrors real human behavior, and emergency permits cover the cases where a helpful friend is not available.
+- This keeps the financial model mostly online while still giving students a humane fallback.
+
+Tradeoff accepted:
+
+- Emergency ride permits introduce a small bounded offline-trust surface and additional issuance or redemption logic.
+- That is acceptable because the risk is tightly capped and much lower than building a general offline payment system.
+
+### Decision 019: API v1 is unversioned, REST-first, and server-trusted
+
+Decision:
+
+- Use unversioned REST paths in v1.
+- Use one unified auth login endpoint and one unified boarding endpoint with mode-based branching.
+- Require server-side preview for fare confirmation and raw QR payload submission for security-sensitive scans.
+- Use one shared WebSocket per mobile app with explicit message types and telemetry acknowledgements.
+
+Reasoning:
+
+- The project is still early enough that path versioning would add ceremony without solving a real compatibility problem yet.
+- The most important contract boundary is not resource purity. It is keeping money and boarding decisions centralized and auditable.
+- Preview plus submit matches the product UX while preventing client-side fare logic from drifting.
+- A single socket per app is the simplest mobile-operational model that still supports telemetry, ETA, and alerts cleanly.
+
+Tradeoff accepted:
+
+- Some endpoints are more workflow-oriented than perfectly REST-pure.
+- That is acceptable because the system is optimizing for correctness, mobile resilience, and implementation clarity rather than textbook API aesthetics.
+
+### Decision 020: Split API planning into critical contract and deferred inventory
+
+Decision:
+
+- Keep one detailed API spec for the risky first-build flows.
+- Keep a second backlog-style API spec for the noncritical and deferred surface.
+
+Reasoning:
+
+- Not every endpoint deserves the same planning depth at the same time.
+- Critical flows such as auth, boarding, and telemetry need example payloads and tighter contracts before coding starts.
+- Secondary surfaces such as admin CRUD, imports, audit browsing, and quality-of-life endpoints still need to stay visible so they are not forgotten.
+
+Tradeoff accepted:
+
+- The project now has two API planning documents instead of one.
+- That is acceptable because the split reduces overload while still preserving implementation visibility across the full product surface.
+
+### Decision 021: Admin and cashier APIs are locked before the rest of the deferred surface
+
+Decision:
+
+- Turn the admin and cashier domain into a full contract before fully specifying the remaining deferred APIs.
+- Keep fare-policy control in admin hands with support for flat route pricing, zero-fare, and stop-based matrices.
+
+Reasoning:
+
+- The shared web app sets up and governs most of the platform's behavior, so it has outsized influence on whether the rest of the system remains coherent.
+- Locking this domain first gives the project a strong operational backbone without forcing every lower-priority endpoint to be overdesigned up front.
+- Fare-policy flexibility is part of the product's deployer story and should not be lost just because the first admin contract is being written.
+
+Tradeoff accepted:
+
+- Some lower-priority driver and technical-admin APIs remain at backlog level for now.
+- That is acceptable because the most operationally central deferred domain is now specified in detail.
+
+### Decision 022: Finish the remaining API contracts before coding the platform
+
+Decision:
+
+- Convert the remaining high-value deferred API domains into dedicated contracts before implementation begins.
+- Keep only truly optional or future surfaces in the backlog inventory.
+
+Reasoning:
+
+- The project has crossed the point where undocumented domains create more risk than the extra planning time costs.
+- Driver recovery, student self-service, and technical-admin ops all influence service boundaries, state handling, and UI work in ways that are expensive to improvise later.
+- A near-complete contract set lowers coordination cost once coding starts across Go, Flutter, and the admin app.
+
+Tradeoff accepted:
+
+- The spec surface is now broader and more document-heavy than a minimal prototype would require.
+- That is acceptable because Charon is intentionally being built as a portfolio-grade, implementation-ready system rather than a loose concept sketch.
 
 ## Ongoing Story Format
 

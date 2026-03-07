@@ -3,7 +3,7 @@
 ## Document Status
 
 - Status: Draft v1
-- Date: 2026-03-07
+- Date: 2026-03-08
 - Purpose: Single source of truth for product behavior, architecture, interfaces, reliability rules, and delivery expectations.
 
 ## 1. Product Overview
@@ -23,6 +23,7 @@ The project is designed to demonstrate strong backend engineering, distributed s
 
 - Prevent double-charging during flaky mobile network conditions.
 - Guarantee that wallet balances never go negative because of concurrent requests.
+- Preserve a bounded boarding fallback when a student temporarily loses internet.
 - Show live bus positions on a low-cost mobile map stack.
 - Provide a privacy-safe live route view so guardians can see where the bus is.
 - Keep current-position fanout off PostgreSQL.
@@ -36,7 +37,7 @@ The project is designed to demonstrate strong backend engineering, distributed s
 - Public consumer payment gateway in the first release.
 - Full route optimization or dispatch automation.
 - Enterprise-grade multi-region deployment.
-- Dynamic distance-based pricing in the first release.
+- GPS-derived or fully dynamic distance pricing in the first release.
 
 ## 3.1 Architecture Choice
 
@@ -100,6 +101,7 @@ Extraction triggers in the future would only be considered if one of these becom
 - logs in to the mobile app
 - views wallet balance and ledger history
 - scans bus QR code to pay fare
+- selects a stop during boarding for ETA and fare resolution
 - views live bus location and ETA
 - receives rider alerts
 
@@ -136,11 +138,13 @@ Extraction triggers in the future would only be considered if one of these becom
 
 ### Student App (Flutter)
 
-- Wallet tab
+- Home-first mobile experience
+- Wallet view with scan action
 - QR scanner for boarding
 - Live map with MapTiler-backed cached tiles
-- Rider-specific stop ETA view
+- Rider-specific stop ETA view with favorites
 - Rider alerts and notification center
+- Profile and settings
 
 ### Driver App (Flutter)
 
@@ -176,8 +180,11 @@ Extraction triggers in the future would only be considered if one of these becom
 
 - auth and RBAC
 - wallet ledger and balance snapshots
+- minimal route and stop registry for boarding and fare resolution
 - bus registry and durable QR issuance
 - idempotent QR boarding
+- sponsored boarding
+- emergency ride permit fallback
 - transactional outbox
 - live telemetry fanout
 - telemetry archival
@@ -186,7 +193,7 @@ Extraction triggers in the future would only be considered if one of these becom
 
 ### Phase 1.1
 
-- routes, stops, and timetables
+- full route, stop, and timetable management
 - weekly schedules with holiday and special-event exceptions
 - route sessions linked to schedules
 - PostGIS enablement
@@ -211,6 +218,9 @@ Extraction triggers in the future would only be considered if one of these becom
 - Driver users log in with employee ID plus password.
 - The backend must issue JWT access tokens and refresh tokens.
 - Protected endpoints must enforce role checks.
+- Student sessions should remain logged in across app restarts by default.
+- Student accounts may have multiple active device sessions in v1.
+- Forgotten student-password reset is admin-assisted in v1.
 - Driver-only endpoints must validate that the caller is assigned to the active route session when required.
 - Admin, cashier, and technical operations users share one web app with role-based module access.
 
@@ -221,13 +231,15 @@ Extraction triggers in the future would only be considered if one of these becom
 - Every transaction must create balanced debit and credit `ledger_entries`.
 - `wallet_accounts.available_balance_minor` must be updated inside the same database transaction for fast balance reads.
 - Wallet history must be queryable by user.
-- The fare model must support route-level flat fares and zero-fare deployments or routes.
-- Each route session must resolve its fare from the assigned route configuration.
+- The fare model must support route-level flat fares, selected-stop-based fares, and zero-fare deployments or routes.
+- Each boarding attempt must include a selected stop so ETA and fare logic receive consistent rider input.
+- Each route session must resolve its fare from the assigned route configuration and the selected stop when the fare policy requires it.
+- The boarding domain must support three payment layers: direct self-pay, sponsored boarding, and emergency ride permit fallback.
 - Students may have a deployer-configurable small overdraft limit.
 - Students may also be marked as fare-exempt.
 - Credits and refunds must be cashier-driven at a campus counter, with room for future third-party integration.
-- Cashiers may issue credits or refunds directly up to a configured limit.
-- Credits or refunds above the cashier limit must require admin approval.
+- Cashiers may issue credits directly in v1.
+- Refunds above the cashier limit must require admin approval.
 - Every manual balance adjustment must record full before and after values, reason code, actor, and approval chain if any.
 
 ### 7.3 Boarding Flow
@@ -243,6 +255,17 @@ Extraction triggers in the future would only be considered if one of these becom
 - The backend must resolve the current boardable service instance from the scanned `bus_id`.
 - If the scanned bus has no boardable service instance, boarding must be rejected with the user-facing state `Trip Not Active Yet`.
 - If the scanned bus has multiple boardable service instances because of bad operations data, boarding must be rejected and flagged for admin cleanup.
+- The student app must include the selected stop in the boarding request.
+- Direct self-pay remains the default boarding mode.
+- Sponsored boarding must allow one authenticated student to pay for self plus at most one additional student in v1.
+- Sponsored boarding must create separate rider-level boarding events while charging the payer in one atomic transaction.
+- Sponsored boarding must be all-or-nothing in v1; if any rider in the request is invalid, duplicated, blocked, or financially disallowed, the whole request fails.
+- Sponsored boarding in v1 uses the same selected stop for all riders in the request.
+- Emergency ride permits must provide a bounded offline fallback for a student who has no internet and no sponsor available.
+- Emergency ride permits must be pre-issued while the student device is online, stored securely on device, signed or strongly verifiable server-side, and bound to `student_id + device_id`.
+- Emergency ride permits must be one-time use, capped to a single ride or configured max single fare, and short-lived.
+- Emergency ride permit use must be recorded locally and redeemed with the backend when connectivity returns.
+- The system must limit how many unresolved emergency permit uses can exist for one student or device at the same time.
 - The backend must lock the student wallet row with `SELECT ... FOR UPDATE` before validating funds.
 - A boarding charge is allowed when the post-charge balance stays within the configured overdraft limit.
 - Fare-exempt students must be allowed to board without a student wallet debit, while still generating an auditable boarding record and policy decision.
@@ -297,7 +320,7 @@ Extraction triggers in the future would only be considered if one of these becom
 - Admin users must be able to mark service as unavailable for planned closures or disruptions.
 - Scheduled trips must create separate morning and evening service instances for boarding and operations.
 - A route session must be linked to a scheduled trip once scheduling is enabled.
-- ETA for students must be stop-specific and tied to the rider's selected stop.
+- ETA for students must be stop-specific and tied to the rider's manually selected or favorited stop.
 - ETA for the public live view must be route-level only and not personalized.
 - ETA must be computed from scheduled stop times plus live delay.
 - If telemetry is stale for 30 seconds, ETA must fall back to scheduled time and be flagged as stale.
@@ -345,21 +368,52 @@ Delivery requirements:
 
 ### 8.1 Student Boarding Workflow
 
+Supported modes:
+
+- direct self-pay
+- sponsored boarding
+- emergency ride permit fallback
+
+#### 8.1.1 Direct Self-Pay
+
 1. Student scans the durable bus QR or enters the numeric bus code manually.
-2. App performs the campus-geofence safety check locally and determines whether warning or override UX is needed.
-3. App shows confirmation with bus, route, service label, fare, service window, and expected balance after charge.
-4. Student confirms and the app sends `POST /boardings` with `Idempotency-Key`.
-5. API checks Redis idempotency state.
-6. API validates the QR or manual bus lookup and resolves the current boardable service instance from `bus_id`.
-7. API resolves the applicable route fare and rider exemption or overdraft policy.
-8. API opens a Postgres transaction.
-9. API locks the wallet account row.
-10. API validates duplicate-boarding rule and financial allowance.
-11. API inserts the financial transaction and ledger entries when money is being charged.
-12. API updates balance snapshots when money moves.
-13. API inserts the boarding event, fare decision record, and scan audit metadata.
-14. API inserts the outbox event.
-15. API commits and stores the final response in Redis.
+2. App prompts the student to select the relevant stop, with favorites surfaced first where available.
+3. App performs the campus-geofence safety check locally and determines whether warning or override UX is needed.
+4. App shows confirmation with bus, route, service label, selected stop, fare, service window, and expected balance after charge.
+5. Student confirms and the app sends `POST /boardings` with `Idempotency-Key`.
+6. API checks Redis idempotency state.
+7. API validates the QR or manual bus lookup and resolves the current boardable service instance from `bus_id`.
+8. API resolves the applicable route fare from the fare policy, selected stop, and rider exemption or overdraft policy.
+9. API opens a Postgres transaction.
+10. API locks the wallet account row.
+11. API validates duplicate-boarding rule and financial allowance.
+12. API inserts the financial transaction and ledger entries when money is being charged.
+13. API updates balance snapshots when money moves.
+14. API inserts the boarding event, fare decision record, selected-stop metadata, and scan audit metadata.
+15. API inserts the outbox event.
+16. API commits and stores the final response in Redis.
+
+#### 8.1.2 Sponsored Boarding
+
+1. Connected payer scans the bus QR or enters the numeric bus code.
+2. Payer selects the stop and may add one additional rider by entering student ID.
+3. App resolves the additional rider with masked confirmation and shows rider count plus total fare.
+4. Payer confirms the sponsored boarding request.
+5. API validates service window, duplicate-boarding rule, rider eligibility, and payer financial allowance for all riders together.
+6. API creates one financial transaction for the payer.
+7. API creates one boarding event per rider, all linked to the same route session and transaction.
+8. API commits atomically or rejects the whole request.
+
+#### 8.1.3 Emergency Ride Permit Fallback
+
+1. Student has a valid pre-issued emergency ride permit already stored securely on device.
+2. Student scans the durable bus QR or enters the numeric bus code and selects the stop.
+3. App validates that a local emergency permit is available and presents a clearly labeled emergency-ride confirmation.
+4. App marks the permit as locally consumed and stores a pending redemption record.
+5. Student is allowed to board without full live backend completion at that moment.
+6. When connectivity returns, the app redeems the permit with the backend.
+7. Backend validates the permit, service window, duplicate rule, and fare cap, then creates the normal boarding event and ledger debit.
+8. If redemption later fails, the account is handled through debt, overdraft, and permit-issuance policy rather than pretending the ride never happened.
 
 ### 8.2 Telemetry Workflow
 
@@ -502,11 +556,15 @@ This split is the primary operational seam in the first version:
 - id
 - student_id
 - route_session_id
+- selected_stop_id nullable
+- paid_by_student_id nullable
 - transaction_id
+- boarding_mode
 - fare_minor
 - fare_policy_type
 - charge_mode
 - exemption_reason_code nullable
+- emergency_permit_id nullable
 - created_at
 
 `outbox_events`
@@ -527,8 +585,31 @@ This split is the primary operational seam in the first version:
 - code
 - name
 - fare_policy_type
-- fare_minor
+- default_fare_minor nullable
 - status
+
+`route_fare_rules`
+
+- id
+- route_id
+- service_label nullable
+- stop_id nullable
+- fare_minor
+- effective_from nullable
+- effective_to nullable
+
+`emergency_ride_permits`
+
+- id
+- student_id
+- device_id
+- permit_token_hash
+- max_fare_minor
+- status
+- expires_at
+- issued_at
+- used_at nullable
+- redeemed_at nullable
 
 `stops`
 
@@ -674,6 +755,7 @@ This split is the primary operational seam in the first version:
 
 - every financial transaction balances to zero
 - every boarding resolves exactly one fare decision, whether charged, exempt, or zero-fare
+- sponsored boarding may charge one payer for multiple riders, but each rider still gets a separate immutable boarding event
 - wallet balance snapshot and ledger entries change in the same transaction
 - outbox event exists for every DB-originated event that must leave the system
 - no duplicate boarding charge for the same student and route session
@@ -683,6 +765,7 @@ This split is the primary operational seam in the first version:
 - module boundaries remain enforceable and no cross-module direct table mutation bypasses service rules
 - Redis is never the financial source of truth
 - telemetry unavailability alone must never block otherwise valid boarding
+- student-selected stop is recorded with the boarding event whether or not the fare policy uses it
 
 ## 11. Interface Contracts
 
@@ -698,6 +781,8 @@ Student wallet:
 
 - `GET /wallet/balance`
 - `GET /wallet/transactions`
+- `POST /wallet/emergency-voucher/issue`
+- `GET /boardings/preview`
 - `POST /boardings`
 
 Admin finance:
@@ -721,8 +806,8 @@ Route sessions:
 
 Public live view:
 
-- `GET /public/routes`
-- `GET /public/routes/{id}/live`
+- `GET /public/routes/active`
+- `GET /public/routes/{route_code}/live`
 - `GET /public/advisories`
 
 ### 11.2 WebSocket Message Types
@@ -868,6 +953,8 @@ Operational simplicity is a first-class requirement:
 - different-key low-balance contention tests
 - overdraft threshold tests
 - exempt-rider boarding tests
+- sponsored-boarding atomicity tests
+- emergency-permit issue, consume, and redeem tests
 - ledger invariant tests
 - admin credit and refund tests
 
@@ -907,19 +994,28 @@ Operational simplicity is a first-class requirement:
 - Use [ADMIN_SPEC.md](e:\Projects\Charon\ADMIN_SPEC.md) as the detailed admin and cashier operations reference.
 - Use [BUS_QR_SPEC.md](e:\Projects\Charon\BUS_QR_SPEC.md) as the detailed durable QR and boarding-behavior reference.
 - Use [DRIVER_APP_SPEC.md](e:\Projects\Charon\DRIVER_APP_SPEC.md) as the detailed driver behavior reference.
+- Use [STUDENT_APP_SPEC.md](e:\Projects\Charon\STUDENT_APP_SPEC.md) as the detailed student behavior reference.
+- Use [API_SPEC.md](e:\Projects\Charon\API_SPEC.md) as the first wire-level contract for auth, boarding, wallet, sockets, and public live view.
+- Use [ADMIN_CASHIER_API_SPEC.md](e:\Projects\Charon\ADMIN_CASHIER_API_SPEC.md) as the wire-level contract for the shared admin and cashier web application.
+- Use [STUDENT_SELF_SERVICE_API_SPEC.md](e:\Projects\Charon\STUDENT_SELF_SERVICE_API_SPEC.md) as the wire-level contract for student profile, settings, favorites, and alert read-state.
+- Use [DRIVER_SERVICE_API_SPEC.md](e:\Projects\Charon\DRIVER_SERVICE_API_SPEC.md) as the wire-level contract for driver attachment, service control, notices, and device-health reporting.
+- Use [SYSTEM_OPS_API_SPEC.md](e:\Projects\Charon\SYSTEM_OPS_API_SPEC.md) as the wire-level contract for technical-admin queue, DLQ, and worker-health endpoints.
+- Use [NONCRITICAL_API_SPEC.md](e:\Projects\Charon\NONCRITICAL_API_SPEC.md) as the backlog contract for deferred student, driver, admin, and system-ops endpoints.
 - Use [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md) as the delivery timeline.
 - Use [ENGINEERING_STORY.md](e:\Projects\Charon\ENGINEERING_STORY.md) as the running decision and reasoning log.
-- Keep this document at system level; create a dedicated API specification separately.
+- Keep this document at system level; wire-level details now live in [API_SPEC.md](e:\Projects\Charon\API_SPEC.md).
 
 ## 18. Acceptance Criteria
 
 The project is successful when all of the following are true:
 
 - a student can board exactly once under retry-heavy network conditions
+- a student can use the app on Android and iOS
 - a student can scan a durable bus QR without requiring the driver to present a phone
 - a student can also board using the manual numeric bus-code fallback when scan fails
+- a student who loses internet can still board through sponsored boarding or a valid emergency ride permit without breaking financial invariants
 - wallet balances remain correct under concurrent request bursts
-- route-based flat fare and zero-fare policies can be configured per deployment
+- route-based flat fare, selected-stop fare, and zero-fare policies can be configured per deployment
 - small overdraft and exempt-student rules behave as configured and remain auditable
 - the live map shows buses without PostgreSQL being in the synchronous path
 - the map stack uses cached MapTiler tiles instead of an expensive Google Maps dependency
@@ -937,9 +1033,13 @@ The project is successful when all of the following are true:
 - single university deployment
 - open-source project intended for institute self-hosting, not SaaS growth
 - student ID plus password for students, employee ID plus password for drivers
+- Android and iOS student app in v1, with Android-first driver app
+- student sessions persist by default and may exist on multiple devices
+- forgotten student-password reset is admin-assisted
 - durable admin-issued QR per physical bus, with active-session lookup at boarding time
 - schedule-authoritative boarding window with `30 minute` early boarding and `15 minute` late grace
-- route-based flat fare or zero-fare policy in the first release, with no distance pricing yet
+- route-based flat fare, selected-stop fare, or zero-fare policy in the first release, with no GPS-derived distance pricing yet
+- three-layer boarding fallback of direct self-pay, sponsored boarding, and bounded emergency ride permit
 - cashier counter funding with future third-party credit-system integration left open
 - small deployer-configurable overdraft support
 - optional fare exemptions for eligible students

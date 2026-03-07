@@ -3,7 +3,7 @@
 ## Document Status
 
 - Status: Draft v1
-- Date: 2026-03-07
+- Date: 2026-03-08
 - Purpose: Define the durable bus QR model, boarding authorization rules, physical and operational UX, security controls, and fraud-resistance behavior for the Charon platform.
 
 ## 1. Design Intent
@@ -176,8 +176,9 @@ Boarding is allowed only when all of the following are true:
 - institute identifier matches the current deployment
 - QR version is current or still inside the rotation grace period
 - exactly one boardable service instance exists for the scanned bus
+- the student has provided a stop selection
 - duplicate-boarding rule is not violated for the student and service instance
-- wallet rules allow the charge or exemption path
+- wallet rules, sponsorship rules, or emergency permit rules allow the boarding path
 
 Boarding must be blocked when:
 
@@ -269,24 +270,58 @@ If one student scans multiple different buses in a suspiciously short period, th
 
 ## 9. Boarding Flow
 
+Supported boarding modes:
+
+- direct self-pay
+- sponsored boarding
+- emergency ride permit fallback
+
 ### 9.1 QR Scan Path
 
 1. Student scans durable bus QR.
 2. App decodes signed payload locally.
-3. App runs on-device location safety check.
-4. App shows warning if outside campus geofence, permission denied, or location quality is weak.
-5. App shows confirmation screen.
-6. Student confirms payment.
-7. App sends boarding request with:
+3. App prompts the student to select the relevant stop, with favorites surfaced first where available.
+4. App runs on-device location safety check.
+5. App shows warning if outside campus geofence, permission denied, or location quality is weak.
+6. App shows confirmation screen.
+7. Student confirms payment.
+8. App sends boarding request with:
    - `Idempotency-Key`
    - signed QR payload or derived bus identity
+   - selected stop
    - location-check result only
    - whether warning override occurred
-8. Backend validates QR and resolves the current boardable service instance.
-9. Backend runs wallet, exemption, and duplicate-boarding rules.
-10. Backend commits the ledger transaction and boarding event.
+9. Backend validates QR and resolves the current boardable service instance.
+10. Backend runs wallet, fare, exemption, and duplicate-boarding rules.
+11. Backend commits the ledger transaction and boarding event.
 
-### 9.2 Manual Fallback Path
+### 9.2 Sponsored Boarding Path
+
+Sponsored boarding exists for the case where one connected student pays for another rider.
+
+Rules:
+
+- sponsored boarding still uses the same durable bus QR or numeric bus code
+- the payer may add one additional rider in v1
+- both riders share the same selected stop in v1
+- backend must validate duplicate protection and eligibility for each rider
+- backend must create one money-moving transaction for the payer and one boarding event per rider
+- the whole request must commit atomically or fail atomically
+
+### 9.3 Emergency Ride Permit Path
+
+Emergency ride permits exist only as a bounded no-internet fallback.
+
+Rules:
+
+- the permit must be pre-issued while online
+- the permit must be tied to student and device
+- the permit must be one-time use
+- the permit must still be used against a valid bus, stop selection, and service window
+- the app may allow boarding locally and redeem the permit later when connectivity returns
+- permit redemption failure must be audit-visible and handled through debt or permit policy, not silent data loss
+
+### 9.4 Manual Fallback Path
 
 Manual fallback is always available.
 
@@ -295,9 +330,10 @@ Flow:
 1. Student chooses `Enter Bus Code`.
 2. Student enters short numeric bus code.
 3. App resolves the associated bus identity from the backend.
-4. App runs the same location safety check.
-5. App shows the same confirmation screen.
-6. Backend processes the request through the same service-instance and ledger rules.
+4. App prompts for the relevant stop selection.
+5. App runs the same location safety check.
+6. App shows the same confirmation screen.
+7. Backend processes the request through the same service-instance and ledger rules.
 
 Manual fallback must be audit-logged.
 
@@ -309,7 +345,9 @@ Before money moves, the app must show a confirmation screen containing:
 - route name
 - service label such as morning or evening
 - current direction or leg when known
+- boarding stop
 - fare
+- rider count and total fare when sponsoring
 - service window
 - expected wallet balance after charge
 - location safety state if warning or override applies
@@ -367,7 +405,6 @@ Primary defense:
 Secondary controls:
 
 - driver `End` still available
-- admin can close or cancel a service instance
 - stale operational state can be flagged in admin tools
 
 Because service windows auto-expire, a parked bus should not remain indefinitely boardable just because the driver forgot to act.
@@ -400,6 +437,11 @@ Recommended audit fields:
 - `scan_source` such as `QR` or `MANUAL_CODE`
 - `validation_result`
 - `service_instance_id`
+- `selected_stop_id`
+- `boarding_mode`
+- `paid_by_student_id`
+- `sponsored_rider_id nullable`
+- `emergency_permit_id nullable`
 - `service_window_result`
 - `location_check_result`
 - `location_override_used`
@@ -430,6 +472,8 @@ The system should track:
 - boarding rejections by reason
 - scans outside valid service window
 - manual fallback usage count
+- sponsored boarding usage count
+- emergency ride permit usage count
 - location warning override count
 - old-version QR usage count
 - suspicious multiple-bus scan count
@@ -447,6 +491,10 @@ The system should track:
 - old QR version after grace period
 - manual bus-code fallback success
 - manual bus-code fallback with unknown code
+- sponsored boarding success
+- sponsored boarding with second rider already boarded
+- emergency ride permit local use and later redemption
+- emergency ride permit redemption failure handling
 - permission denied location flow
 - outside-campus warning flow with override
 - multiple bus scans by one student in a short interval
