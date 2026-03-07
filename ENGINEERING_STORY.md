@@ -140,6 +140,36 @@ Why this was done:
 - The real problem is correctness, reliability, and usability, not extreme scale.
 - A more distributed system would make deployment, debugging, and support worse for the target audience.
 
+### 9. Durable bus QR replaces driver phone display
+
+Work completed:
+
+- Replaced the driver-presented session QR model with durable admin-issued QR assets tied to physical buses.
+- Moved QR generation responsibility to the admin side.
+- Updated the boarding flow so scan validation resolves the active route session from the bus instead of the driver's phone screen.
+
+Why this was done:
+
+- Expecting a driver to keep a phone visible for the entire boarding window is poor physical UX and unrealistic operationally.
+- A printed or mounted QR is simpler, more durable, and less dependent on driver behavior, battery, or device quality.
+- The change keeps the backend guarantees intact while removing friction from the physical boarding process.
+
+### 10. Bus QR behavior detailed and decoupled from telemetry
+
+Work completed:
+
+- Defined a dedicated bus QR specification.
+- Shifted boarding authorization to schedule-backed service windows instead of telemetry freshness.
+- Added on-device campus-geofence safety checks with warning and override behavior.
+- Added manual numeric bus-code fallback.
+- Added QR rotation grace-period and scan-audit requirements.
+
+Why this was done:
+
+- The boarding path must survive weak driver devices, Android background-kill behavior, and imperfect human operations.
+- The goal is to prevent accidental or casual abuse without turning the product into a privacy-heavy or admin-heavy system.
+- The bus QR flow needed a tighter operational model than the earlier high-level spec provided.
+
 ## Decision Log
 
 ### Decision 001: Go modular monolith plus workers
@@ -305,6 +335,63 @@ Tradeoff accepted:
 
 - Independent runtime scaling is limited compared with a more distributed architecture.
 - That is acceptable because the actual workload is bounded and the operational simplicity is more valuable than theoretical scale headroom.
+
+### Decision 010: Durable admin-issued bus QR is better than driver-held session QR
+
+Decision:
+
+- Generate durable signed QR assets from the admin side and attach them to physical buses.
+- Resolve the active route session at scan time using the scanned bus identifier.
+- Remove any requirement for drivers to hold out a phone during boarding.
+
+Reasoning:
+
+- This is much better physical UX for the real boarding environment.
+- It reduces reliance on driver devices during the busiest and most chaotic part of the flow.
+- It still preserves strong server-side control because the bus must be in an active route session and the QR remains signed.
+
+Tradeoff accepted:
+
+- The QR is less dynamic than a route-session-specific on-screen code.
+- That is acceptable because active-session validation and QR rotation controls provide enough safety for the bounded campus use case.
+
+### Decision 011: Boarding authorization is schedule-authoritative, not telemetry-authoritative
+
+Decision:
+
+- Use schedule-backed service windows as the source of boarding truth.
+- Open boarding `30 minutes` before service start and keep it valid until `15 minutes` after scheduled end.
+- Do not require fresh telemetry for payment authorization.
+
+Reasoning:
+
+- Target Android devices often kill background apps aggressively.
+- Students can arrive before the driver is operationally ready.
+- Financial correctness and boarding UX are more important than forcing payment to depend on live vehicle signals.
+
+Tradeoff accepted:
+
+- A valid QR can still be scanned even when live telemetry is stale.
+- That is acceptable because the service window, confirmation screen, scan audits, and QR rotation controls are enough for the bounded campus use case.
+
+### Decision 012: Student location stays on device and acts as a warning layer, not a hard gate
+
+Decision:
+
+- Run a campus-geofence safety check on device.
+- Do not send raw student GPS coordinates to the backend.
+- If the device appears outside campus or permission is denied, warn and require extra confirmation, but still allow override.
+
+Reasoning:
+
+- This reduces privacy risk and admin complexity.
+- The purpose is to catch careless remote scans, not to enforce precise geofencing everywhere.
+- Stop-level geofence setup is too heavy for the intended campus operator.
+
+Tradeoff accepted:
+
+- Remote-scan protection is advisory rather than absolute.
+- That is acceptable because the user is primarily protected from accidentally burning their own money, while suspicious patterns are still audit-visible.
 
 ## Ongoing Story Format
 

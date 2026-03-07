@@ -72,8 +72,11 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 
 ### Work
 
-- Build route-session start flow and signed static QR generation.
+- Build bus registry and durable signed QR generation from the admin side.
+- Build schedule-backed service windows with `30 minute` early boarding and `15 minute` late grace.
+- Build route-session and service-instance binding so the scanned bus resolves to the current boardable run rather than a driver-held QR.
 - Implement `POST /boardings` with Redis-backed idempotency state.
+- Add manual numeric bus-code fallback and scan-audit logging.
 - Add `SELECT ... FOR UPDATE` locking on the student wallet account.
 - Insert `boarding_events`, fare-decision tracking, and unique duplicate-prevention constraints.
 - Write concurrency and retry tests.
@@ -82,7 +85,10 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 
 - Same idempotency key never charges twice.
 - Concurrent boarding requests cannot produce negative balances.
-- Driver can start a session and display a valid QR payload.
+- Driver can start a session without needing to display a phone for boarding.
+- Durable admin-issued bus QR works for boarding when the bus is in an active route session.
+- Boarding still works when telemetry is stale, as long as the schedule-backed service window is valid.
+- Manual numeric bus-code fallback works through the same authorization path.
 
 ## Week 4: Transactional Outbox and Reliable Domain Events
 

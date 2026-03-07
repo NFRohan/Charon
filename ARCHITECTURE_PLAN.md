@@ -31,13 +31,13 @@ The system is designed to prove strong system design judgment without unnecessar
 ### Driver App (Flutter)
 
 - Start and end route session.
-- Display signed route-session QR code for boarding.
 - Send telemetry every 3 seconds over WebSocket.
 - Receive driver-facing operational notices if needed.
 
 ### Admin App (Next.js + TypeScript)
 
 - Finance operations for wallet credits and refunds.
+- Bus registry and durable QR generation.
 - Route, stop, and timetable management.
 - Live fleet operations view.
 - Alerts dashboard.
@@ -104,7 +104,12 @@ This keeps the platform operationally realistic while staying compact enough for
 
 #### Boarding Safety Rules
 
-- Signed QR payload contains `bus_id`, `route_session_id`, `issued_at`, and a signature.
+- Durable signed bus QR contains `bus_id`, `qr_version`, and signature.
+- Backend resolves the current boardable service instance from the scanned bus.
+- Scheduled boarding opens `30 minutes` before service start and closes `15 minutes` after scheduled end.
+- Boarding is rejected if the bus has no boardable service instance or has conflicting active sessions.
+- Telemetry freshness is not a hard boarding gate.
+- Manual numeric bus-code fallback is always available.
 - Unique constraint on `student_id + route_session_id` prevents accidental repeat charge during the same bus run.
 - Initial fare policy supports route-level flat fares and zero-fare routes or deployments.
 - Small overdraft is deployer-configurable.
@@ -312,6 +317,7 @@ WebSocket message types:
 - auth and RBAC
 - wallet ledger and account snapshots
 - route-level fare configuration, overdraft support, and fare exemptions
+- bus registry and durable QR issuance
 - idempotent QR boarding
 - transactional outbox
 - MapTiler provider choice and Flutter tile-cache setup
@@ -358,6 +364,8 @@ WebSocket message types:
 - Base map rendering uses MapTiler with on-device caching instead of Google Maps.
 - Driver telemetry buffers and replays after network loss.
 - Weekly timetable supports holiday and special-event exceptions.
+- Durable boarding QR is generated from the admin side and attached to the physical bus.
+- Schedule-backed service windows, not live telemetry freshness, control whether boarding is valid.
 - Guardian live view is route-level only and never exposes student-tracking data.
 - 30-day telemetry retention is enough for the demo environment.
 - Redis is ephemeral and used for idempotency, presence, subscriptions, and current position data.

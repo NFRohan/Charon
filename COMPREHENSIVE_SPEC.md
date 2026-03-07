@@ -107,7 +107,6 @@ Extraction triggers in the future would only be considered if one of these becom
 
 - logs in to the mobile app
 - starts and ends a route session
-- displays the signed route-session QR code
 - streams telemetry every 3 seconds
 
 ### Cashier
@@ -144,13 +143,13 @@ Extraction triggers in the future would only be considered if one of these becom
 ### Driver App (Flutter)
 
 - Route start and stop workflow
-- Static signed QR display for the active route session
 - Background telemetry stream
 - Driver status surface for current route session
 
 ### Admin App (Next.js + TypeScript)
 
 - finance operations
+- bus registry and durable QR generation
 - route and stop management
 - timetable management
 - live fleet view
@@ -171,6 +170,7 @@ Extraction triggers in the future would only be considered if one of these becom
 
 - auth and RBAC
 - wallet ledger and balance snapshots
+- bus registry and durable QR issuance
 - idempotent QR boarding
 - transactional outbox
 - live telemetry fanout
@@ -224,15 +224,30 @@ Extraction triggers in the future would only be considered if one of these becom
 
 ### 7.3 Boarding Flow
 
-- A driver must start a route session before boarding payments are allowed.
-- The backend must issue a signed QR payload containing `bus_id`, `route_session_id`, `issued_at`, and signature.
+- Admin users must register buses and generate durable signed QR assets for each physical bus.
+- The durable QR payload must contain `institute_id`, `bus_id`, `qr_version`, and signature.
+- Scheduled morning and evening runs must be represented as separate boardable service instances.
+- Each service instance covers the full outbound and return cycle for that run.
+- Scheduled boarding becomes valid `30 minutes` before service start and remains valid until `15 minutes` after scheduled end.
+- Driver start and end actions are operational signals, not the sole source of boarding authorization.
 - The student app must send an `Idempotency-Key` with each boarding attempt.
 - The backend must use Redis to store idempotency state scoped by `actor_id + Idempotency-Key`.
+- The backend must resolve the current boardable service instance from the scanned `bus_id`.
+- If the scanned bus has no boardable service instance, boarding must be rejected with the user-facing state `Trip Not Active Yet`.
+- If the scanned bus has multiple boardable service instances because of bad operations data, boarding must be rejected and flagged for admin cleanup.
 - The backend must lock the student wallet row with `SELECT ... FOR UPDATE` before validating funds.
 - A boarding charge is allowed when the post-charge balance stays within the configured overdraft limit.
 - Fare-exempt students must be allowed to board without a student wallet debit, while still generating an auditable boarding record and policy decision.
-- The system must prevent accidental duplicate charging on the same route session using a uniqueness rule on `student_id + route_session_id`.
-- The system assumes one boarding charge per student per trip.
+- The system must prevent accidental duplicate charging on the same service instance using a uniqueness rule on `student_id + route_session_id`.
+- The system assumes one boarding charge per student per service instance.
+- The driver flow must not depend on keeping a phone screen visible for boarding.
+- Telemetry freshness must not be a hard requirement for boarding authorization.
+- Manual fallback using a short numeric bus code must always be available.
+- Student device location must be evaluated on-device against the campus geofence only in v1.
+- Raw student GPS coordinates must not leave the device for boarding validation.
+- If location indicates likely remote scan or permission is denied, the app must show warning plus extra confirmation but still allow override.
+- Scans outside the valid service window must be blocked and audit-logged.
+- Repeated scans across multiple buses in a suspiciously short period must be audit-flagged.
 
 ### 7.4 Telemetry and Live Map
 
@@ -268,6 +283,7 @@ Extraction triggers in the future would only be considered if one of these becom
 - Admin users must create and edit routes, stops, stop order, trip templates, and scheduled stop times.
 - The scheduling model must support a weekly timetable plus holiday and special-event exceptions.
 - Admin users must be able to mark service as unavailable for planned closures or disruptions.
+- Scheduled trips must create separate morning and evening service instances for boarding and operations.
 - A route session must be linked to a scheduled trip once scheduling is enabled.
 - ETA for students must be stop-specific and tied to the rider's selected stop.
 - ETA for the public live view must be route-level only and not personalized.
@@ -309,7 +325,7 @@ Delivery requirements:
 - The system must provide a public-facing live route view built from the same telemetry pipeline as the student experience.
 - The public view must show active buses, route progress, route-level ETA, and active service advisories.
 - The public view must never expose wallet data, student identities, boarding events, or student-specific ETA preferences.
-- The public view must be safe for guardians and parents to understand where a bus is, but it must not claim to show a child’s exact current location.
+- The public view must be safe for guardians and parents to understand where a bus is, but it must not claim to show a child's exact current location.
 - The public view must degrade gracefully when telemetry is stale by marking the bus as stale or recently updated rather than showing misleading fresh movement.
 - The public view must be deployer-controlled so the university can disable it if needed.
 
@@ -317,19 +333,21 @@ Delivery requirements:
 
 ### 8.1 Student Boarding Workflow
 
-1. Driver starts route session.
-2. Backend creates signed QR payload for that session.
-3. Student scans QR and sends `POST /boardings` with `Idempotency-Key`.
-4. API checks Redis idempotency state.
-5. API resolves the applicable route fare and rider exemption or overdraft policy.
-6. API opens a Postgres transaction.
-7. API locks the wallet account row.
-8. API validates duplicate-boarding rule and financial allowance.
-9. API inserts the financial transaction and ledger entries when money is being charged.
-10. API updates balance snapshots when money moves.
-11. API inserts the boarding event and fare decision record.
-12. API inserts the outbox event.
-13. API commits and stores the final response in Redis.
+1. Student scans the durable bus QR or enters the numeric bus code manually.
+2. App performs the campus-geofence safety check locally and determines whether warning or override UX is needed.
+3. App shows confirmation with bus, route, service label, fare, service window, and expected balance after charge.
+4. Student confirms and the app sends `POST /boardings` with `Idempotency-Key`.
+5. API checks Redis idempotency state.
+6. API validates the QR or manual bus lookup and resolves the current boardable service instance from `bus_id`.
+7. API resolves the applicable route fare and rider exemption or overdraft policy.
+8. API opens a Postgres transaction.
+9. API locks the wallet account row.
+10. API validates duplicate-boarding rule and financial allowance.
+11. API inserts the financial transaction and ledger entries when money is being charged.
+12. API updates balance snapshots when money moves.
+13. API inserts the boarding event, fare decision record, and scan audit metadata.
+14. API inserts the outbox event.
+15. API commits and stores the final response in Redis.
 
 ### 8.2 Telemetry Workflow
 
@@ -512,6 +530,14 @@ This split is the primary operational seam in the first version:
 - stop_id
 - stop_order
 
+`buses`
+
+- id
+- code_or_plate
+- status
+- qr_version
+- default_route_id nullable
+
 `trip_templates`
 
 - id
@@ -532,6 +558,10 @@ This split is the primary operational seam in the first version:
 - id
 - trip_template_id nullable in Phase 1
 - bus_id
+- session_source
+- service_label
+- scheduled_start
+- scheduled_end
 - driver_id
 - started_at
 - ended_at nullable
@@ -618,6 +648,7 @@ This split is the primary operational seam in the first version:
 - manual credits and refunds record actor, before and after values, reason code, and approval chain where applicable
 - module boundaries remain enforceable and no cross-module direct table mutation bypasses service rules
 - Redis is never the financial source of truth
+- telemetry unavailability alone must never block otherwise valid boarding
 
 ## 11. Interface Contracts
 
@@ -741,12 +772,22 @@ Examples of DB-originated domain events:
 - Historical telemetry must be retained for 30 days in the primary demo environment.
 - Retention cleanup must not interfere with current operational queries.
 
+### 12.9 Durable QR Safety
+
+- Durable bus QR assets must be signed so students cannot forge bus identifiers.
+- Boarding depends on an active route session lookup after scan, not just on QR presence.
+- Admins must be able to rotate and reissue a bus QR by bumping `qr_version` if a sticker is damaged or leaked.
+- Old QR versions may continue to work for a `1 day` grace period, but their use must be flagged.
+- Schedule-backed service windows, not telemetry freshness, are the primary guard against forgotten route endings.
+- Manual numeric bus-code fallback must go through the same authorization and audit path as QR scan.
+
 ## 13. Security Requirements
 
 - JWT signing keys and third-party secrets must be stored in environment-backed secret configuration.
-- Route-session QR codes must be signed and validated server-side.
+- Durable bus QR codes must be signed and validated server-side.
 - Admin and cashier endpoints must enforce strict RBAC.
 - Audit trails must exist for credits, refunds, and route-session changes.
+- Audit trails must also exist for durable QR issuance and rotation.
 - PII must be minimized in logs and message payloads.
 - The guardian live view must expose only route-level operational data and no student-identifying information.
 
@@ -774,6 +815,9 @@ The system should expose at least:
 - active WebSocket connection count
 - public live-view connection count
 - stale route session count
+- blocked out-of-window scan count
+- manual bus-code fallback count
+- suspicious multi-bus scan count
 
 Operational simplicity is a first-class requirement:
 
@@ -808,6 +852,9 @@ Operational simplicity is a first-class requirement:
 - stale ETA fallback
 - route deviation detection
 - public live view freshness and privacy filtering tests
+- boarding outside service window tests
+- manual bus-code fallback tests
+- on-device location warning and override tests
 
 ### 16.4 Alert Tests
 
@@ -822,6 +869,7 @@ Operational simplicity is a first-class requirement:
 ## 17. Delivery Plan
 
 - Use [ARCHITECTURE_PLAN.md](e:\Projects\Charon\ARCHITECTURE_PLAN.md) as the shorter architecture companion.
+- Use [BUS_QR_SPEC.md](e:\Projects\Charon\BUS_QR_SPEC.md) as the detailed durable QR and boarding-behavior reference.
 - Use [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md) as the delivery timeline.
 - Use [ENGINEERING_STORY.md](e:\Projects\Charon\ENGINEERING_STORY.md) as the running decision and reasoning log.
 - Keep this document at system level; create a dedicated API specification separately.
@@ -831,6 +879,8 @@ Operational simplicity is a first-class requirement:
 The project is successful when all of the following are true:
 
 - a student can board exactly once under retry-heavy network conditions
+- a student can scan a durable bus QR without requiring the driver to present a phone
+- a student can also board using the manual numeric bus-code fallback when scan fails
 - wallet balances remain correct under concurrent request bursts
 - route-based flat fare and zero-fare policies can be configured per deployment
 - small overdraft and exempt-student rules behave as configured and remain auditable
@@ -850,6 +900,8 @@ The project is successful when all of the following are true:
 - single university deployment
 - open-source project intended for institute self-hosting, not SaaS growth
 - institutional ID plus password login
+- durable admin-issued QR per physical bus, with active-session lookup at boarding time
+- schedule-authoritative boarding window with `30 minute` early boarding and `15 minute` late grace
 - route-based flat fare or zero-fare policy in the first release, with no distance pricing yet
 - cashier counter funding with future third-party credit-system integration left open
 - small deployer-configurable overdraft support
