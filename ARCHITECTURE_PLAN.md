@@ -31,7 +31,9 @@ The system is designed to prove strong system design judgment without unnecessar
 ### Driver App (Flutter)
 
 - Start and end route session.
-- Send telemetry every 3 seconds over WebSocket.
+- Attach to bus by QR or numeric code after login.
+- Send telemetry every 10 seconds over WebSocket.
+- Use Android foreground-service behavior for background telemetry in v1.
 - Receive driver-facing operational notices if needed.
 
 ### Admin App (Next.js + TypeScript)
@@ -68,7 +70,7 @@ This keeps the platform operationally realistic while staying compact enough for
 
 ### 1. Identity and Access
 
-- Institutional ID plus password with JWT-based access and refresh tokens.
+- Students use student ID plus password; drivers use employee ID plus password with JWT-based access and refresh tokens.
 - Roles: `student`, `driver`, `cashier`, `admin`.
 - No multi-tenant logic in the first version.
 
@@ -146,7 +148,7 @@ Apply outbox publishing to all events that originate from committed database sta
 
 #### Telemetry Ingestion
 
-- Driver app sends WebSocket telemetry every 3 seconds.
+- Driver app sends WebSocket telemetry every 10 seconds.
 - Payload includes:
   - `route_session_id`
   - `bus_id`
@@ -156,7 +158,8 @@ Apply outbox publishing to all events that originate from committed database sta
   - `heading`
   - `accuracy_m`
   - `recorded_at`
-- If connectivity drops, the driver app buffers telemetry locally and replays it in order on reconnect.
+- Driver app may attach and start from locally cached service data when offline.
+- If connectivity drops, the driver app buffers telemetry locally for at least 30 minutes and replays it in order on reconnect.
 
 #### Live Fanout
 

@@ -154,6 +154,20 @@ This message is intentionally simple and can cover:
 - no scheduled run currently active
 - route not started for the current window
 
+### 6.4 Driver Attachment to Bus and Service Instance
+
+The same durable bus QR may be used by the driver app, but only as a bus selector after driver authentication.
+
+Rules:
+
+- driver identity comes from the authenticated driver session
+- bus identity comes from bus QR or numeric bus code
+- scanning the public bus QR does not grant driver privilege by itself
+- backend must attach the authenticated driver to the current eligible service instance for that bus
+- if there is no eligible service instance, driver attachment must fail clearly
+- if the bus has more than one eligible service instance around a valid boundary, the driver may choose manually
+- if the bus has conflicting service data beyond a legitimate boundary case, driver attachment must fail and be flagged for admin review
+
 ## 7. Boarding Authorization Rules
 
 Boarding is allowed only when all of the following are true:
@@ -444,6 +458,7 @@ The system should track:
 This document refines the boarding rules in:
 
 - [COMPREHENSIVE_SPEC.md](e:\Projects\Charon\COMPREHENSIVE_SPEC.md)
+- [ADMIN_SPEC.md](e:\Projects\Charon\ADMIN_SPEC.md)
 - [ARCHITECTURE_PLAN.md](e:\Projects\Charon\ARCHITECTURE_PLAN.md)
 - [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md)
 

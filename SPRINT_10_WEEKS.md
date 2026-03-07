@@ -30,7 +30,7 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 - Create monorepo layout for `api`, `worker`, `student_app`, `driver_app`, and `admin_app`.
 - Add Docker Compose for Postgres, Redis, RabbitMQ, API, and worker services.
 - Initialize Go service structure and configuration loading.
-- Enable JWT auth skeleton and role model.
+- Enable JWT auth skeleton and role model, including student ID and driver employee ID login paths.
 - Lock MapTiler as the base map provider and define Flutter tile-cache strategy, storage cap, and API-key handling.
 - Draft initial schema migrations for users, wallet accounts, routes, and route sessions.
 
@@ -122,16 +122,20 @@ This sprint plan turns the architecture into a 10-week build roadmap optimized f
 - Validate telemetry payloads and route-session ownership.
 - Publish telemetry to Redis Pub/Sub.
 - Track last-known bus positions in Redis.
-- Buffer telemetry locally during connectivity loss and replay it in order after reconnect.
+- Implement Android foreground-service telemetry flow on the driver app.
+- Buffer telemetry locally for at least 30 minutes during connectivity loss and replay it in order after reconnect.
+- Add offline attach or start support when the relevant service data is already cached locally.
+- Add battery-optimization risk detection and active-service state restoration after app restart.
 - Implement student route subscription WebSocket flow.
 - Render moving buses on the student map using MapTiler-backed tiles.
 - Implement local tile caching and prewarm the campus viewport and primary routes.
 
 ### Exit Criteria
 
-- Driver app streams telemetry every 3 seconds.
+- Driver app streams telemetry every 10 seconds.
 - Student app receives live map updates with low latency.
 - Replayed telemetry is archived correctly after temporary disconnection.
+- Driver app restores active service state after restart and continues telemetry correctly.
 - Student map remains usable from cached tiles during brief connectivity loss.
 - PostgreSQL is not in the synchronous live-tracking path.
 

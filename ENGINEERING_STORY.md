@@ -96,7 +96,7 @@ Why this was done:
 
 Work completed:
 
-- Locked institutional ID plus password as the launch login model.
+- Locked student ID plus password for students and employee ID plus password for drivers as the launch login model.
 - Replaced the simple flat-fare assumption with route-level flat fare or zero-fare policy support.
 - Added small overdraft support and optional fare exemptions.
 - Simplified the driver flow so route assignment is admin-managed and the driver mainly presses start.
@@ -169,6 +169,49 @@ Why this was done:
 - The boarding path must survive weak driver devices, Android background-kill behavior, and imperfect human operations.
 - The goal is to prevent accidental or casual abuse without turning the product into a privacy-heavy or admin-heavy system.
 - The bus QR flow needed a tighter operational model than the earlier high-level spec provided.
+
+### 11. Admin operating model defined
+
+Work completed:
+
+- Defined a single shared web app for admins, cashiers, and technical admins.
+- Locked cashier scope to finance lookup, student search, credits, and refunds.
+- Added refund approval rules, technical-admin system-ops boundaries, and CSV import or export requirements.
+- Defined dynamic driver attachment as authenticated bus selection through bus QR or bus code, rather than rigid pre-assignment.
+
+Why this was done:
+
+- Campus operators need one understandable control surface, not multiple fragmented portals.
+- Cashier scope needed to stay narrow so finance workflows remain simple and safer.
+- Driver attachment needed to stay flexible enough for changing real-world assignments without making the public QR itself privileged.
+
+### 12. Audit log immutability tightened
+
+Work completed:
+
+- Corrected the admin model so audit events remain immutable.
+- Split investigation commentary from source audit facts by introducing linked investigation notes instead of editable audit rows.
+
+Why this was done:
+
+- Financial and operational audit trails should not be editable in place.
+- Admins still need space for investigation context, but that must be append-only around the audit event rather than a mutation of it.
+
+### 13. Driver app operating model defined
+
+Work completed:
+
+- Defined the driver app as an Android-first, minimal operational tool for personal phones.
+- Switched driver authentication to employee ID plus password.
+- Reduced telemetry frequency to 10 seconds for better battery behavior.
+- Added foreground-service, battery-optimization warning, offline attach or start, and app-restart recovery requirements.
+- Kept route maps and complex route detail out of the driver experience.
+
+Why this was done:
+
+- The driver workflow must stay simple enough for low-friction daily use.
+- Personal Android phones and aggressive background-kill behavior are the real environmental constraints.
+- The app should optimize for reliable telemetry and low cognitive load, not feature richness.
 
 ## Decision Log
 
@@ -282,7 +325,7 @@ Tradeoff accepted:
 
 Decision:
 
-- Use institutional ID plus password at launch.
+- Use student ID plus password for students and employee ID plus password for drivers at launch.
 - Support route-level flat fare and zero-fare policies.
 - Allow small overdraft and optional fare exemptions.
 - Keep the driver start flow extremely simple through admin-managed route setup.
@@ -392,6 +435,78 @@ Tradeoff accepted:
 
 - Remote-scan protection is advisory rather than absolute.
 - That is acceptable because the user is primarily protected from accidentally burning their own money, while suspicious patterns are still audit-visible.
+
+### Decision 013: One role-based operations app is better than separate admin and cashier portals
+
+Decision:
+
+- Use one shared web app for admin, cashier, and technical-admin users.
+- Restrict features through role-based screens and actions.
+
+Reasoning:
+
+- This is easier to deploy, learn, and maintain for self-hosted institutes.
+- Campus operators should not need to juggle multiple portals for closely related work.
+
+Tradeoff accepted:
+
+- The application needs careful role-based navigation and permission handling.
+- That is acceptable because the operational simplicity outweighs the added internal access-control work.
+
+### Decision 014: Driver attachment is dynamic and authenticated, not pre-assigned and not QR-authorized
+
+Decision:
+
+- Allow drivers to attach themselves to the current eligible service instance after login by scanning bus QR or entering bus code.
+- Treat the bus QR only as bus selection, never as driver authorization.
+
+Reasoning:
+
+- Drivers can change between trips in real operations.
+- Rigid pre-assignment would create unnecessary friction.
+- Using the same bus QR as a selector keeps the field workflow simple without making the public QR itself privileged.
+
+Tradeoff accepted:
+
+- Driver assignment becomes a little more dynamic and needs clear conflict handling.
+- That is acceptable because it better matches real operations and still keeps authorization anchored to authenticated driver identity.
+
+### Decision 015: Audit logs stay immutable; investigation notes are separate records
+
+Decision:
+
+- Keep `audit_logs` immutable after insert.
+- Store operator commentary in a separate `audit_investigation_notes` table linked by `audit_log_id`.
+
+Reasoning:
+
+- The source audit event should remain a trustworthy record of what happened.
+- Investigation context is useful, but it should be appended alongside the audit event rather than changing the event itself.
+
+Tradeoff accepted:
+
+- The data model and admin UI are slightly more complex than editable audit rows.
+- That is acceptable because the integrity of the audit trail matters more than the convenience of mutating a single record.
+
+### Decision 016: Driver app is Android-first, battery-aware, and deliberately minimal
+
+Decision:
+
+- Support Android only in v1, while keeping Flutter implementation choices compatible with future iOS builds where practical.
+- Use employee ID plus password for driver login.
+- Emit telemetry every 10 seconds with foreground-service support and 30-minute local buffering.
+- Keep the UI focused on bus attach, service state, health indicators, and simple notices.
+
+Reasoning:
+
+- The real deployment environment is personal Android phones, not idealized managed devices.
+- Reliability and usability matter more than maximizing telemetry granularity or shipping a dense feature set.
+- A simpler driver app is more likely to survive real-world operational use.
+
+Tradeoff accepted:
+
+- Fleet movement is slightly less granular than the earlier 3-second concept.
+- That is acceptable because the small campus fleet and bounded route network do not need higher-frequency telemetry badly enough to justify the extra battery cost.
 
 ## Ongoing Story Format
 

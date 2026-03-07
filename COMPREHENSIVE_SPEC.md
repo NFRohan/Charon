@@ -106,8 +106,10 @@ Extraction triggers in the future would only be considered if one of these becom
 ### Driver
 
 - logs in to the mobile app
+- uses employee ID plus password
 - starts and ends a route session
-- streams telemetry every 3 seconds
+- can self-attach to the current eligible service instance by scanning bus QR or entering bus code after login
+- streams telemetry every 10 seconds
 
 ### Cashier
 
@@ -143,11 +145,15 @@ Extraction triggers in the future would only be considered if one of these becom
 ### Driver App (Flutter)
 
 - Route start and stop workflow
+- Bus attach by QR or numeric code
 - Background telemetry stream
+- Android-first foreground-service behavior for telemetry
 - Driver status surface for current route session
+- Basic operational notices
 
 ### Admin App (Next.js + TypeScript)
 
+- shared admin and cashier web app with role-based screens
 - finance operations
 - bus registry and durable QR generation
 - route and stop management
@@ -200,11 +206,13 @@ Extraction triggers in the future would only be considered if one of these becom
 ### 7.1 Authentication and Authorization
 
 - The system must support role-based login for student, driver, cashier, and admin users.
-- The initial credential model must use institutional ID plus password.
+- The initial credential model must use role-specific credentials.
 - Student users log in with student ID plus password.
+- Driver users log in with employee ID plus password.
 - The backend must issue JWT access tokens and refresh tokens.
 - Protected endpoints must enforce role checks.
 - Driver-only endpoints must validate that the caller is assigned to the active route session when required.
+- Admin, cashier, and technical operations users share one web app with role-based module access.
 
 ### 7.2 Wallet, Ledger, and Fare Policy
 
@@ -243,6 +251,8 @@ Extraction triggers in the future would only be considered if one of these becom
 - The driver flow must not depend on keeping a phone screen visible for boarding.
 - Telemetry freshness must not be a hard requirement for boarding authorization.
 - Manual fallback using a short numeric bus code must always be available.
+- Authenticated drivers may use the same bus QR or numeric bus code to bind themselves to the current eligible service instance, but the QR does not itself grant driver privilege.
+- If multiple eligible service instances are available for the same bus around a boundary time, the authenticated driver may choose manually during attachment.
 - Student device location must be evaluated on-device against the campus geofence only in v1.
 - Raw student GPS coordinates must not leave the device for boarding validation.
 - If location indicates likely remote scan or permission is denied, the app must show warning plus extra confirmation but still allow override.
@@ -251,13 +261,15 @@ Extraction triggers in the future would only be considered if one of these becom
 
 ### 7.4 Telemetry and Live Map
 
-- The driver app must send telemetry every 3 seconds over WebSocket.
+- The driver app must send telemetry every 10 seconds over WebSocket.
 - Telemetry payload must include `route_session_id`, `bus_id`, `lat`, `lng`, `speed_kph`, `heading`, `accuracy_m`, and `recorded_at`.
 - The API must publish live telemetry through Redis Pub/Sub.
 - The API must maintain last-known bus positions in Redis.
 - Student clients must subscribe to route updates over WebSocket.
 - Live telemetry must not require synchronous PostgreSQL writes.
-- If connectivity drops, the driver app must buffer at least 5 minutes of telemetry locally and replay it in order once the connection returns.
+- The driver app must use Android foreground-service behavior while telemetry is active.
+- If connectivity drops, the driver app must buffer at least 30 minutes of telemetry locally and replay it in order once the connection returns.
+- The driver app must be able to start from locally cached service data when offline.
 - Replayed telemetry must preserve original timestamps.
 - Replayed stale telemetry must still be archived, but it must not be broadcast as fresh live movement if it is too old for real-time display.
 
@@ -351,12 +363,13 @@ Delivery requirements:
 
 ### 8.2 Telemetry Workflow
 
-1. Driver app sends telemetry over WebSocket every 3 seconds.
-2. If offline, driver app stores telemetry locally until reconnect.
-3. API validates route session and payload shape.
-4. Fresh telemetry is published through Redis Pub/Sub and updates last-known position in Redis.
-5. Raw telemetry payloads, including replayed points, are published to RabbitMQ.
-6. Archiver worker batches and bulk writes telemetry to PostgreSQL.
+1. Driver authenticates with employee ID and attaches to a bus or current service instance using QR or numeric bus code.
+2. Telemetry begins immediately and is emitted every 10 seconds.
+3. If offline, driver app stores telemetry locally until reconnect.
+4. API validates route session and payload shape.
+5. Fresh telemetry is published through Redis Pub/Sub and updates last-known position in Redis.
+6. Raw telemetry payloads, including replayed points, are published to RabbitMQ.
+7. Archiver worker batches and bulk writes telemetry to PostgreSQL.
 
 ### 8.3 Outbox Workflow
 
@@ -630,6 +643,25 @@ This split is the primary operational seam in the first version:
 - starts_at
 - ends_at nullable
 
+`audit_logs`
+
+- id
+- actor_id nullable
+- subject_type
+- subject_id nullable
+- action_type
+- result
+- payload_json
+- created_at
+
+`audit_investigation_notes`
+
+- id
+- audit_log_id
+- author_id
+- note_body
+- created_at
+
 `device_tokens`
 
 - id
@@ -646,6 +678,8 @@ This split is the primary operational seam in the first version:
 - outbox event exists for every DB-originated event that must leave the system
 - no duplicate boarding charge for the same student and route session
 - manual credits and refunds record actor, before and after values, reason code, and approval chain where applicable
+- audit log rows are immutable after insert
+- investigation context is appended through linked notes, never by mutating original audit events
 - module boundaries remain enforceable and no cross-module direct table mutation bypasses service rules
 - Redis is never the financial source of truth
 - telemetry unavailability alone must never block otherwise valid boarding
@@ -788,6 +822,7 @@ Examples of DB-originated domain events:
 - Admin and cashier endpoints must enforce strict RBAC.
 - Audit trails must exist for credits, refunds, and route-session changes.
 - Audit trails must also exist for durable QR issuance and rotation.
+- Audit events must be immutable; operator investigation notes must be stored separately from the source audit row.
 - PII must be minimized in logs and message payloads.
 - The guardian live view must expose only route-level operational data and no student-identifying information.
 
@@ -869,7 +904,9 @@ Operational simplicity is a first-class requirement:
 ## 17. Delivery Plan
 
 - Use [ARCHITECTURE_PLAN.md](e:\Projects\Charon\ARCHITECTURE_PLAN.md) as the shorter architecture companion.
+- Use [ADMIN_SPEC.md](e:\Projects\Charon\ADMIN_SPEC.md) as the detailed admin and cashier operations reference.
 - Use [BUS_QR_SPEC.md](e:\Projects\Charon\BUS_QR_SPEC.md) as the detailed durable QR and boarding-behavior reference.
+- Use [DRIVER_APP_SPEC.md](e:\Projects\Charon\DRIVER_APP_SPEC.md) as the detailed driver behavior reference.
 - Use [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md) as the delivery timeline.
 - Use [ENGINEERING_STORY.md](e:\Projects\Charon\ENGINEERING_STORY.md) as the running decision and reasoning log.
 - Keep this document at system level; create a dedicated API specification separately.
@@ -899,7 +936,7 @@ The project is successful when all of the following are true:
 
 - single university deployment
 - open-source project intended for institute self-hosting, not SaaS growth
-- institutional ID plus password login
+- student ID plus password for students, employee ID plus password for drivers
 - durable admin-issued QR per physical bus, with active-session lookup at boarding time
 - schedule-authoritative boarding window with `30 minute` early boarding and `15 minute` late grace
 - route-based flat fare or zero-fare policy in the first release, with no distance pricing yet
@@ -908,6 +945,7 @@ The project is successful when all of the following are true:
 - optional fare exemptions for eligible students
 - MapTiler-backed map stack with client-side tile caching
 - cached campus and all-route map coverage
+- Android-first driver app in v1 with background telemetry via foreground service
 - PostGIS introduced when schedule-aware spatial features begin
 - weekly timetable plus exception dates and service advisories
 - in-app alerts by default, with push reserved for service cancellation and major disruption
