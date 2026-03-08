@@ -5,6 +5,7 @@ Thumbs.db
 .vscode/
 **/.idea/
 **/*.iml
+flexes.md
 
 # Environment files
 .env

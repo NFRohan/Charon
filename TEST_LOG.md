@@ -92,3 +92,17 @@ This log records what was actually run, when it was run, what passed, and any no
   - Development seed created `4` wallet accounts: `2` student accounts and `2` system accounts.
   - Development seed created `2` routes, `5` stops, `2` buses, `2` service calendars, `4` trip templates, `12` trip stop times, and `4` stop-based fare rules.
   - Route A is seeded as `FLAT_ROUTE` and Route B is seeded as `STOP_MATRIX` so both fare-model branches have local fixtures before boarding work begins.
+
+### Sprint 2 Auth Hardening Follow-up Verification
+
+- `Phase`: Sprint 2 follow-up
+- `Scope`: production auth hardening for config secrets and password hashing recommendations
+- `Environment`: local Windows workstation
+- `Checks`:
+  - `gofmt -w backend/internal/config/config.go backend/internal/config/config_test.go backend/internal/domain/auth/password.go backend/internal/domain/auth/password_test.go backend/internal/app/api.go`
+  - `go test ./...` in `backend`
+- `Result`: PASS
+- `Notes`:
+  - Production startup now rejects the exact Docker Compose development placeholder secrets for access-token signing and refresh-token pepper values.
+  - Auth now selects stronger Argon2id parameters in production while keeping development and test defaults cheap enough for local iteration.
+  - Existing DB-backed session validation still means logout revocation is enforced on authenticated requests immediately, rather than waiting for access-token expiry.

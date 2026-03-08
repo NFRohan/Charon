@@ -41,4 +41,13 @@ func TestConfigValidate(t *testing.T) {
 	if err := weak.Validate(); err == nil {
 		t.Fatal("expected validation error for weak auth secrets")
 	}
+
+	production := valid
+	production.AppEnv = AppEnvProduction
+	production.AccessTokenSecret = "development-access-secret-change-before-shipping"
+	production.RefreshTokenPepper = "development-refresh-pepper-change-before-shipping"
+
+	if err := production.Validate(); err == nil {
+		t.Fatal("expected validation error for development secrets in production")
+	}
 }

@@ -17,6 +17,11 @@ const (
 	AppEnvProduction  = "production"
 )
 
+var forbiddenProductionSecrets = map[string]string{
+	"CHARON_ACCESS_TOKEN_SECRET":  "development-access-secret-change-before-shipping",
+	"CHARON_REFRESH_TOKEN_PEPPER": "development-refresh-pepper-change-before-shipping",
+}
+
 type Config struct {
 	AppEnv             string
 	APIHTTPAddr        string
@@ -100,6 +105,23 @@ func (c Config) Validate() error {
 
 	if len(c.RefreshTokenPepper) < 32 {
 		errs = append(errs, errors.New("CHARON_REFRESH_TOKEN_PEPPER must be at least 32 characters"))
+	}
+
+	if c.AppEnv == AppEnvProduction {
+		for key, forbidden := range forbiddenProductionSecrets {
+			var value string
+
+			switch key {
+			case "CHARON_ACCESS_TOKEN_SECRET":
+				value = c.AccessTokenSecret
+			case "CHARON_REFRESH_TOKEN_PEPPER":
+				value = c.RefreshTokenPepper
+			}
+
+			if value == forbidden {
+				errs = append(errs, fmt.Errorf("%s must not use the development placeholder in production", key))
+			}
+		}
 	}
 
 	if duration, err := time.ParseDuration(c.AccessTokenTTL); err != nil {

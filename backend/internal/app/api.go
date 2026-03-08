@@ -60,7 +60,7 @@ func NewAPI(cfg config.Config) (*API, error) {
 
 	authService, err := auth.NewService(
 		auth.NewPostgresRepository(db),
-		auth.NewArgon2idHasher(auth.DefaultArgon2idParams()),
+		auth.NewArgon2idHasher(auth.RecommendedArgon2idParams(cfg.AppEnv)),
 		tokenManager,
 	)
 	if err != nil {

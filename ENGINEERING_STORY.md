@@ -913,6 +913,7 @@ Impact on the build:
 
 - final Flutter map package choice around MapTiler integration
 - caching policy details and storage limits
+- `device_tokens` schema and push-notification storage once notification work begins
 - how route corridors are authored and stored
 - auth UX decisions for student, driver, and admin roles
 - first concurrency benchmark results for boarding

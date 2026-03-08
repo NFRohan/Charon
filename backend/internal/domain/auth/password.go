@@ -37,6 +37,17 @@ func DefaultArgon2idParams() Argon2idParams {
 	}
 }
 
+func RecommendedArgon2idParams(appEnv string) Argon2idParams {
+	params := DefaultArgon2idParams()
+	if appEnv != "production" {
+		return params
+	}
+
+	params.Memory = 64 * 1024
+	params.Iterations = 3
+	return params
+}
+
 func NewArgon2idHasher(params Argon2idParams) Argon2idHasher {
 	return Argon2idHasher{params: params}
 }
