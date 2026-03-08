@@ -63,3 +63,32 @@ This log records what was actually run, when it was run, what passed, and any no
   - After logout, the previously issued access token returned `401`, confirming DB-backed session revocation is enforced on authenticated requests.
   - Suspended login returned `403`, confirming disabled-account enforcement.
   - Docker helper scripts were updated to rebuild service images so local verification cannot silently run stale binaries.
+
+### Sprint 3 Core Schema and Migration Baseline Verification
+
+- `Phase`: Sprint 3
+- `Scope`: core schema bootstrap, fresh-database migration, and development route or wallet seed coverage
+- `Environment`: local Windows workstation with Docker Compose and a fresh Postgres volume
+- `Checks`:
+  - `go test ./...` in `backend`
+  - `docker compose -f deploy/docker-compose.yml down -v`
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-up.ps1`
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\seed.ps1`
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 status`
+  - manual health check against `http://localhost:8080/healthz`
+  - Postgres sanity queries for:
+    - `wallet_accounts`
+    - `finance_adjustments`
+    - `routes`
+    - `stops`
+    - `buses`
+    - `service_calendars`
+    - `trip_templates`
+    - `trip_stop_times`
+    - `route_fare_rules`
+- `Result`: PASS
+- `Notes`:
+  - Migration version `3` applied cleanly from zero on a fresh database.
+  - Development seed created `4` wallet accounts: `2` student accounts and `2` system accounts.
+  - Development seed created `2` routes, `5` stops, `2` buses, `2` service calendars, `4` trip templates, `12` trip stop times, and `4` stop-based fare rules.
+  - Route A is seeded as `FLAT_ROUTE` and Route B is seeded as `STOP_MATRIX` so both fare-model branches have local fixtures before boarding work begins.

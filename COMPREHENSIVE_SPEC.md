@@ -526,7 +526,10 @@ This split is the primary operational seam in the first version:
 `wallet_accounts`
 
 - id
-- user_id
+- user_id nullable for system accounts
+- system_account_code nullable for user accounts
+- account_name
+- owner_type
 - available_balance_minor
 - overdraft_limit_minor
 - status
@@ -593,7 +596,7 @@ This split is the primary operational seam in the first version:
 - id
 - route_id
 - service_label nullable
-- stop_id nullable
+- stop_id
 - fare_minor
 - effective_from nullable
 - effective_to nullable
@@ -615,6 +618,7 @@ This split is the primary operational seam in the first version:
 
 - id
 - name
+- public_label
 - position
 
 `route_stop_sequences`
@@ -627,7 +631,8 @@ This split is the primary operational seam in the first version:
 `buses`
 
 - id
-- code_or_plate
+- bus_code
+- plate nullable
 - status
 - qr_version
 - default_route_id nullable
@@ -637,20 +642,24 @@ This split is the primary operational seam in the first version:
 - id
 - route_id
 - service_calendar_id
+- service_label
 - name
 - status
+- early_boarding_window_minutes
+- late_grace_window_minutes
 
 `trip_stop_times`
 
 - id
 - trip_template_id
 - stop_id
-- scheduled_time
+- offset_minutes
 
 `route_sessions`
 
 - id
 - trip_template_id nullable in Phase 1
+- route_id
 - bus_id
 - session_source
 - service_label
@@ -660,6 +669,8 @@ This split is the primary operational seam in the first version:
 - started_at
 - ended_at nullable
 - status
+- notes nullable
+- created_by_user_id nullable
 
 `telemetry_points`
 
@@ -677,13 +688,17 @@ This split is the primary operational seam in the first version:
 `alerts`
 
 - id
-- type
+- alert_type
 - severity
-- target_type
-- target_id
+- route_id nullable
+- bus_id nullable
+- route_session_id nullable
 - status
+- message
+- investigation_notes_count
+- last_actor_id nullable
 - opened_at
-- closed_at nullable
+- resolved_at nullable
 
 `finance_adjustments`
 
@@ -691,12 +706,16 @@ This split is the primary operational seam in the first version:
 - wallet_account_id
 - transaction_id nullable
 - adjustment_type
+- amount_minor
 - requested_by
 - approved_by nullable
 - approval_status
 - reason_code
 - before_balance_minor
 - after_balance_minor
+- request_note nullable
+- requested_at
+- decided_at nullable
 - created_at
 
 `service_calendars`

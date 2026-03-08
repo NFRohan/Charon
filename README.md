@@ -107,6 +107,7 @@ The compose stack is intentionally minimal because the product is designed for s
   - driver: `DRV1001` / `ChangeMe123!`
   - cashier: `CASH1001` / `ChangeMe123!`
   - admin: `ADM1001` / `ChangeMe123!`
+- The same development seed also creates baseline wallet accounts, system ledger accounts, routes, stops, buses, calendars, and trip templates for local feature work.
 - The mobile apps are real Flutter shells, not placeholder folders, so Android and iOS platform directories already exist where needed.
 - The generated Flutter Android projects may require either a compatible JDK or a Gradle wrapper upgrade on machines using very new Java versions.
 - Migration files live in `backend/migrations`, while environment-specific seed files live in `backend/seeds/<environment>`.

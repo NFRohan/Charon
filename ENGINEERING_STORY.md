@@ -16,6 +16,7 @@ Implementation is underway. The project currently has:
 - a locked first major platform decision for map rendering: MapTiler with client-side caching in Flutter
 - a bootstrapped monorepo with local infrastructure and service startup tooling
 - a completed Sprint 2 auth and session foundation
+- a completed Sprint 3 core schema and development seed baseline
 
 ## Build Principles
 
@@ -369,6 +370,21 @@ Why this was done:
 - Verifying session state from the database on authenticated requests gives stronger revocation behavior than trusting JWTs alone.
 - Stable refresh tokens match the earlier mobile-network decision while still keeping refresh tokens off the database in raw form.
 
+### 24. Core schema and development fixtures implemented
+
+Work completed:
+
+- Added the first full domain schema migration covering wallet accounts, transactions, ledger entries, routes, stops, buses, schedules, route sessions, boarding records, audit records, outbox records, alerts, telemetry archival, and finance adjustments.
+- Added reusable `updated_at` trigger wiring for mutable tables.
+- Added development seed fixtures for wallet accounts, system ledger accounts, routes, stop sequences, fare rules, buses, calendars, and trip templates.
+- Verified the schema from zero on a fresh Postgres volume instead of only migrating forward on an already-used database.
+
+Why this was done:
+
+- The project needed a durable, testable data model before wallet logic, fare calculation, and boarding flows start writing money-adjacent code.
+- A fresh-db migration check is the real bar for schema work, because drift often hides inside already-migrated development databases.
+- Rich seed data reduces friction for the next sprints by giving wallet, route, and QR work real fixtures to build against.
+
 ## Decision Log
 
 ### Decision 001: Go modular monolith plus workers
@@ -526,6 +542,31 @@ Impact on the build:
 - Protected routes now depend on both JWT validation and session-table state.
 - Logout immediately invalidates the session for future authenticated requests.
 - The auth schema and middleware became Sprint 2’s main foundation instead of a lightweight placeholder.
+
+### Decision 026: Ledger accounts must cover both students and system counterparties
+
+Decision:
+
+- Model `wallet_accounts` so they can belong either to a user or to a named system account.
+- Seed explicit system accounts for fare collection and cashier settlement.
+- Add a separate `finance_adjustments` table so manual credits and refunds have their own approval workflow record instead of being implied only through transactions.
+
+Reasoning:
+
+- A real double-entry ledger cannot stop at student wallets; every debit needs a credible counterparty account.
+- Bus fares, cashier credits, and refunds all need traceable system-side accounts if the ledger is going to remain balanced and auditable.
+- Manual adjustments are operational events as well as financial events, so they deserve their own workflow record instead of being hidden inside transaction metadata.
+
+Tradeoff accepted:
+
+- The account model is more flexible and therefore more complex than a simple `user_id -> balance` table.
+- That is acceptable because the simpler model would collapse as soon as the first system-side credit leg or approval flow appears.
+
+Impact on the build:
+
+- Future wallet logic can stay truly double-entry without inventing fake or nullable counterparties.
+- Cashier credit and refund workflows now have a clean table to target in Sprint 4.
+- Development seeds now include both student and system accounts, which makes ledger testing practical much earlier.
 
 ### Decision 006: Outbox for all DB-originated events
 
