@@ -1,0 +1,33 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+**/.idea/
+**/*.iml
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Go
+backend/bin/
+*.out
+*.test
+
+# Node / Next.js
+apps/admin_app/node_modules/
+apps/admin_app/.next/
+apps/admin_app/out/
+
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/ios/Pods/
+**/ios/.symlinks/
+**/android/.gradle/
+**/android/local.properties
