@@ -120,3 +120,4 @@ The compose stack is intentionally minimal because the product is designed for s
 - `STUDENT_SELF_SERVICE_API_SPEC.md`
 - `SYSTEM_OPS_API_SPEC.md`
 - `PHASE_TEST_PLAN.md`
+- `TEST_LOG.md`

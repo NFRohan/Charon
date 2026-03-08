@@ -8,12 +8,14 @@ The point is not just to preserve outcomes. It is to preserve reasoning so futur
 
 ## Current Status
 
-Planning is complete enough to start implementation. The project currently has:
+Implementation is underway. The project currently has:
 
 - a system architecture plan
 - a 20-week sprint plan
 - a comprehensive specification
 - a locked first major platform decision for map rendering: MapTiler with client-side caching in Flutter
+- a bootstrapped monorepo with local infrastructure and service startup tooling
+- a completed Sprint 2 auth and session foundation
 
 ## Build Principles
 
@@ -335,6 +337,38 @@ Why this was done:
 - Bringing mobile in earlier will expose boarding UX, telemetry behavior, and API mistakes sooner.
 - The backend still deserves to lead the plan because ledger safety, outbox reliability, and telemetry architecture remain the highest-risk work.
 
+### 22. Repository scaffold and local infrastructure bootstrap landed
+
+Work completed:
+
+- Created the monorepo scaffold for backend, mobile apps, admin app, scripts, and deployment files.
+- Added Docker Compose-backed local infrastructure for PostgreSQL, Redis, RabbitMQ, API, worker, migration, and seed execution.
+- Added migration and seed commands and a basic health endpoint.
+- Added a phase-based test plan to define verification gates before feature work ramps up.
+
+Why this was done:
+
+- The project needed a reproducible local environment before domain features could be implemented safely.
+- Starting with infrastructure and workflow tooling reduces friction for every later sprint.
+- The build needed a credible operational baseline, not just a folder structure.
+
+### 23. Secure auth and session foundation implemented
+
+Work completed:
+
+- Added the `users` and `auth_sessions` schema.
+- Implemented unified login, refresh, and logout with DB-backed session state.
+- Added Argon2id password hashing and opaque HMAC-hashed refresh-token storage.
+- Added JWT access-token issuance and middleware that re-checks session and account state on protected requests.
+- Added development auth seeds, route protection, and automated tests for config, token, service, and HTTP auth paths.
+
+Why this was done:
+
+- Financially sensitive systems need authentication and session revocation to be first-class, not bolted on later.
+- The project’s next major vertical slices depend on role-aware protected routes.
+- Verifying session state from the database on authenticated requests gives stronger revocation behavior than trusting JWTs alone.
+- Stable refresh tokens match the earlier mobile-network decision while still keeping refresh tokens off the database in raw form.
+
 ## Decision Log
 
 ### Decision 001: Go modular monolith plus workers
@@ -466,6 +500,32 @@ Tradeoff accepted:
 
 - The project now has more parallelism and therefore more context-switching than the previous backend-then-mobile sequence.
 - That is acceptable because the earlier integration feedback is worth the scheduling complexity.
+
+### Decision 025: Access tokens are short-lived JWTs, but session truth stays in PostgreSQL
+
+Decision:
+
+- Use short-lived JWT access tokens for authenticated requests.
+- Use stable opaque refresh tokens whose hashed values are stored in PostgreSQL.
+- On every protected request, validate the JWT and then load the backing session from PostgreSQL before trusting the identity.
+
+Reasoning:
+
+- JWTs keep the request path simple for clients, but money-adjacent systems need reliable revocation and account-state enforcement.
+- A purely stateless token model would allow logged-out or revoked sessions to remain usable until token expiry.
+- Stable refresh tokens are still the right fit for weak mobile networks, but storing only hashed token material reduces blast radius if the session table is exposed.
+- This model keeps revocation strong without forcing every client into refresh-token rotation race conditions.
+
+Tradeoff accepted:
+
+- Every protected request now performs a database lookup instead of trusting the access token alone.
+- That is acceptable because the expected deployment scale is small and the security benefit is worth the cost.
+
+Impact on the build:
+
+- Protected routes now depend on both JWT validation and session-table state.
+- Logout immediately invalidates the session for future authenticated requests.
+- The auth schema and middleware became Sprint 2’s main foundation instead of a lightweight placeholder.
 
 ### Decision 006: Outbox for all DB-originated events
 
