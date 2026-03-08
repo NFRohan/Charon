@@ -1001,7 +1001,7 @@ Operational simplicity is a first-class requirement:
 - Use [DRIVER_SERVICE_API_SPEC.md](e:\Projects\Charon\DRIVER_SERVICE_API_SPEC.md) as the wire-level contract for driver attachment, service control, notices, and device-health reporting.
 - Use [SYSTEM_OPS_API_SPEC.md](e:\Projects\Charon\SYSTEM_OPS_API_SPEC.md) as the wire-level contract for technical-admin queue, DLQ, and worker-health endpoints.
 - Use [NONCRITICAL_API_SPEC.md](e:\Projects\Charon\NONCRITICAL_API_SPEC.md) as the backlog contract for deferred student, driver, admin, and system-ops endpoints.
-- Use [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md) as the delivery timeline.
+- Use [SPRINT_20_WEEKS.md](e:\Projects\Charon\SPRINT_20_WEEKS.md) as the delivery timeline.
 - Use [ENGINEERING_STORY.md](e:\Projects\Charon\ENGINEERING_STORY.md) as the running decision and reasoning log.
 - Keep this document at system level; wire-level details now live in [API_SPEC.md](e:\Projects\Charon\API_SPEC.md).
 

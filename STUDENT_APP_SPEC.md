@@ -329,6 +329,6 @@ This document complements:
 - [COMPREHENSIVE_SPEC.md](e:\Projects\Charon\COMPREHENSIVE_SPEC.md)
 - [BUS_QR_SPEC.md](e:\Projects\Charon\BUS_QR_SPEC.md)
 - [STUDENT_SELF_SERVICE_API_SPEC.md](e:\Projects\Charon\STUDENT_SELF_SERVICE_API_SPEC.md)
-- [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md)
+- [SPRINT_20_WEEKS.md](e:\Projects\Charon\SPRINT_20_WEEKS.md)
 
 If there is a conflict for student-app UX or behavior, this document should be treated as the more specific source.

@@ -508,6 +508,6 @@ This document refines the boarding rules in:
 - [COMPREHENSIVE_SPEC.md](e:\Projects\Charon\COMPREHENSIVE_SPEC.md)
 - [ADMIN_SPEC.md](e:\Projects\Charon\ADMIN_SPEC.md)
 - [ARCHITECTURE_PLAN.md](e:\Projects\Charon\ARCHITECTURE_PLAN.md)
-- [SPRINT_10_WEEKS.md](e:\Projects\Charon\SPRINT_10_WEEKS.md)
+- [SPRINT_20_WEEKS.md](e:\Projects\Charon\SPRINT_20_WEEKS.md)
 
 If there is a conflict between the earlier high-level boarding notes and this document, this document should win for bus QR and boarding UX behavior.

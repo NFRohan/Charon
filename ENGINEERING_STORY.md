@@ -11,7 +11,7 @@ The point is not just to preserve outcomes. It is to preserve reasoning so futur
 Planning is complete enough to start implementation. The project currently has:
 
 - a system architecture plan
-- a 10-week sprint plan
+- a 20-week sprint plan
 - a comprehensive specification
 - a locked first major platform decision for map rendering: MapTiler with client-side caching in Flutter
 
@@ -306,6 +306,35 @@ Why this was done:
 - Driver attachment, device-health reporting, student favorites and settings, and DLQ tooling all affect real implementation structure even if they are not the first demo clicks.
 - Finishing the contract set now is cheaper than discovering missing edge cases halfway through coding.
 
+### 20. Delivery sequencing expanded to 20 weeks with mobile implementation deferred
+
+Work completed:
+
+- Replaced the original 10-week sprint plan with a 20-week plan.
+- Moved real student and driver feature implementation to the end of the schedule.
+- Rebalanced the roadmap so backend, admin, and system-ops work land before heavy Flutter implementation.
+
+Why this was done:
+
+- The active development environment is ready for Go and Next.js work, but not for full Android or Flutter feature execution.
+- The backend and admin surfaces carry more architectural risk than the mobile UI shells, so they should stabilize first anyway.
+- Deferring real mobile implementation reduces churn because the Flutter apps can build against stable contracts instead of moving targets.
+
+### 21. Delivery sequencing revised again for cloud-built mobile validation
+
+Work completed:
+
+- Revised the 20-week plan so student and driver implementation move into the middle of the schedule instead of the very end.
+- Added GitHub Actions as a practical way to produce APK artifacts for real-device testing.
+- Reframed the schedule as backend-first but mobile-parallel once the relevant APIs stabilize.
+
+Why this was done:
+
+- The main blocker was not Flutter itself. It was the lack of a comfortable local Android build loop.
+- Cloud APK builds are enough to validate the student and driver apps on real phones while backend work continues locally.
+- Bringing mobile in earlier will expose boarding UX, telemetry behavior, and API mistakes sooner.
+- The backend still deserves to lead the plan because ledger safety, outbox reliability, and telemetry architecture remain the highest-risk work.
+
 ## Decision Log
 
 ### Decision 001: Go modular monolith plus workers
@@ -397,6 +426,46 @@ Impact on the build:
 - Week 1 now includes locking the map provider and cache design.
 - Week 5 now includes MapTiler integration and viewport prewarming.
 - The mobile map layer should stay provider-agnostic above the tile source so future swaps remain possible.
+
+### Decision 023: Build backend and admin first, then implement mobile features late in the schedule
+
+Decision:
+
+- Expand the delivery plan from 10 weeks to 20 weeks.
+- Treat the backend and admin web app as the primary implementation focus for the first 17 weeks.
+- Push real Flutter feature work into the final implementation window after the service contracts and ops workflows are stable.
+
+Reasoning:
+
+- The current development environment does not yet support comfortable end-to-end Android work.
+- The higher-risk engineering work is in concurrency, ledger correctness, telemetry reliability, schedules, and operator tooling, not in drawing mobile screens.
+- Stable APIs and admin workflows make the later mobile work faster and less error-prone.
+
+Tradeoff accepted:
+
+- The visible mobile experience will arrive later in the timeline than it would in a UI-first build.
+- That is acceptable because the system's hardest guarantees and operational model need to be correct before mobile polish matters.
+
+### Decision 024: Move mobile work into the middle of the plan once cloud APK builds are available
+
+Decision:
+
+- Keep the schedule backend-first.
+- Start the student app after auth, wallet, and boarding APIs are stable.
+- Start the driver app after service-instance and telemetry APIs are stable.
+- Use GitHub Actions to build mobile artifacts for real-device validation during development.
+
+Reasoning:
+
+- Cloud builds remove the strongest reason to delay mobile implementation all the way to the end.
+- Student boarding and driver telemetry are too central to leave until the final sprint window if they can be tested earlier.
+- Real-device feedback in the middle of the project is more valuable than discovering UX and integration issues during final hardening.
+- This keeps the plan pragmatic: the backend still leads, but mobile work no longer waits for everything else to be complete.
+
+Tradeoff accepted:
+
+- The project now has more parallelism and therefore more context-switching than the previous backend-then-mobile sequence.
+- That is acceptable because the earlier integration feedback is worth the scheduling complexity.
 
 ### Decision 006: Outbox for all DB-originated events
 
