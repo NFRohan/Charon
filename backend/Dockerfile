@@ -15,5 +15,7 @@ FROM gcr.io/distroless/base-debian12
 WORKDIR /app
 
 COPY --from=build /out/service /app/service
+COPY migrations /app/migrations
+COPY seeds /app/seeds
 
 ENTRYPOINT ["/app/service"]

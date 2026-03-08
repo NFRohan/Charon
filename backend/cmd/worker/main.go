@@ -2,22 +2,32 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/signal"
 	"syscall"
 
+	"charon/backend/internal/app"
 	"charon/backend/internal/config"
-	"charon/backend/internal/platform/logger"
 )
 
 func main() {
-	cfg := config.Load()
-	log := logger.New(cfg.AppEnv)
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 
-	log.Info("worker process starting", "env", cfg.AppEnv)
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	worker := app.NewWorker(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	<-ctx.Done()
-	log.Info("worker process stopped")
+	return worker.Run(ctx)
 }

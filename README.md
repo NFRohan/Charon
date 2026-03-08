@@ -6,6 +6,7 @@ Charon is a self-hosted university transit platform with three product surfaces:
 - `apps/driver_app`: Flutter app for drivers.
 - `apps/admin_app`: Next.js web app for admin, cashier, and technical admin workflows.
 - `backend`: Go API and worker processes backing wallet, boarding, telemetry, alerts, and outbox delivery.
+- `scripts`: local developer helpers for booting infrastructure, migrations, and seeds.
 
 ## Repository layout
 
@@ -18,8 +19,13 @@ Charon is a self-hosted university transit platform with three product surfaces:
 |-- backend/
 |   |-- cmd/
 |   |   |-- api/
+|   |   |-- migrate/
+|   |   |-- seed/
 |   |   `-- worker/
+|   |-- migrations/
+|   |-- seeds/
 |   `-- internal/
+|       |-- app/
 |       |-- config/
 |       |-- domain/
 |       |-- httpapi/
@@ -27,33 +33,20 @@ Charon is a self-hosted university transit platform with three product surfaces:
 |-- deploy/
 |   |-- docker-compose.yml
 |   `-- postgres/init/
+|-- scripts/
 `-- *.md
 ```
 
 ## Quick start
 
 1. Copy `.env.example` to `.env` and adjust values if needed.
-2. Start infrastructure:
+2. Start local services:
 
    ```powershell
-   docker compose -f deploy/docker-compose.yml up -d postgres redis rabbitmq
+   ./scripts/dev-up.ps1
    ```
 
-3. Start the API:
-
-   ```powershell
-   cd backend
-   go run ./cmd/api
-   ```
-
-4. Start the worker in another terminal:
-
-   ```powershell
-   cd backend
-   go run ./cmd/worker
-   ```
-
-5. Start the admin app:
+3. Start the admin app:
 
    ```powershell
    cd apps/admin_app
@@ -61,11 +54,37 @@ Charon is a self-hosted university transit platform with three product surfaces:
    npm run dev
    ```
 
-6. Run either mobile app:
+4. Run either mobile app:
 
    ```powershell
    cd apps/student_app
    flutter run
+   ```
+
+## Backend utility commands
+
+- Apply migrations:
+
+   ```powershell
+   ./scripts/migrate.ps1 up
+   ```
+
+- Check migration status:
+
+   ```powershell
+   ./scripts/migrate.ps1 status
+   ```
+
+- Apply environment seeds:
+
+   ```powershell
+   ./scripts/seed.ps1
+   ```
+
+- Stop local services:
+
+   ```powershell
+   ./scripts/dev-down.ps1
    ```
 
 ## Local infrastructure
@@ -82,9 +101,10 @@ The compose stack is intentionally minimal because the product is designed for s
 
 ## Notes
 
-- The Go service is scaffolded with domain seams matching the architecture spec, but the business logic is still to be implemented.
+- The Go service now includes validated config loading, application bootstrap wiring, a migration command, and a seed command. The business logic is still to be implemented.
 - The mobile apps are real Flutter shells, not placeholder folders, so Android and iOS platform directories already exist where needed.
 - The generated Flutter Android projects may require either a compatible JDK or a Gradle wrapper upgrade on machines using very new Java versions.
+- Migration files live in `backend/migrations`, while environment-specific seed files live in `backend/seeds/<environment>`.
 
 ## Key specifications
 

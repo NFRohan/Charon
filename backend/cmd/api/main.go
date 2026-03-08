@@ -2,49 +2,32 @@ package main
 
 import (
 	"context"
-	"errors"
-	"net/http"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"charon/backend/internal/app"
 	"charon/backend/internal/config"
-	"charon/backend/internal/httpapi"
-	"charon/backend/internal/platform/logger"
 )
 
 func main() {
-	cfg := config.Load()
-	log := logger.New(cfg.AppEnv)
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 
-	server := &http.Server{
-		Addr:              cfg.APIHTTPAddr,
-		Handler:           httpapi.NewRouter(cfg),
-		ReadHeaderTimeout: 5 * time.Second,
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
 	}
 
-	go func() {
-		log.Info("api server starting", "addr", cfg.APIHTTPAddr, "env", cfg.AppEnv)
-
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("api server failed", "error", err)
-			os.Exit(1)
-		}
-	}()
+	api := app.NewAPI(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	<-ctx.Done()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Error("api server shutdown failed", "error", err)
-		os.Exit(1)
-	}
-
-	log.Info("api server stopped")
+	return api.Run(ctx)
 }
