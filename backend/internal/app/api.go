@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,28 +10,82 @@ import (
 	"time"
 
 	"charon/backend/internal/config"
+	"charon/backend/internal/domain/auth"
 	"charon/backend/internal/httpapi"
 	"charon/backend/internal/platform/logger"
+	"charon/backend/internal/platform/postgres"
 )
 
 type API struct {
 	cfg    config.Config
 	log    *slog.Logger
+	db     *sql.DB
 	server *http.Server
 }
 
-func NewAPI(cfg config.Config) *API {
+func NewAPI(cfg config.Config) (*API, error) {
 	log := logger.New(cfg.AppEnv)
+
+	startupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	db, err := postgres.OpenSQL(startupCtx, postgres.Config{URL: cfg.PostgresURL})
+	if err != nil {
+		return nil, fmt.Errorf("open api postgres connection: %w", err)
+	}
+
+	accessTTL, err := time.ParseDuration(cfg.AccessTokenTTL)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("parse access token ttl: %w", err)
+	}
+
+	refreshTTL, err := time.ParseDuration(cfg.RefreshTokenTTL)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("parse refresh token ttl: %w", err)
+	}
+
+	tokenManager, err := auth.NewTokenManager(auth.TokenConfig{
+		AccessSecret:  cfg.AccessTokenSecret,
+		RefreshPepper: cfg.RefreshTokenPepper,
+		Issuer:        cfg.JWTIssuer,
+		AccessTTL:     accessTTL,
+		RefreshTTL:    refreshTTL,
+	})
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("create token manager: %w", err)
+	}
+
+	authService, err := auth.NewService(
+		auth.NewPostgresRepository(db),
+		auth.NewArgon2idHasher(auth.DefaultArgon2idParams()),
+		tokenManager,
+	)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("create auth service: %w", err)
+	}
+
+	router, err := httpapi.NewRouter(cfg, httpapi.Dependencies{
+		Auth: authService,
+	})
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("create api router: %w", err)
+	}
 
 	return &API{
 		cfg: cfg,
 		log: log,
+		db:  db,
 		server: &http.Server{
 			Addr:              cfg.APIHTTPAddr,
-			Handler:           httpapi.NewRouter(cfg),
+			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-	}
+	}, nil
 }
 
 func (a *API) Run(ctx context.Context) error {
@@ -58,13 +113,26 @@ func (a *API) Run(ctx context.Context) error {
 	defer cancel()
 
 	if err := a.server.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutdown api server: %w", err)
+		return errors.Join(fmt.Errorf("shutdown api server: %w", err), a.closeDB())
 	}
 
 	if err := <-errCh; err != nil {
-		return err
+		return errors.Join(err, a.closeDB())
 	}
 
 	a.log.Info("api server stopped")
+	return a.closeDB()
+}
+
+func (a *API) closeDB() error {
+	if a.db == nil {
+		return nil
+	}
+
+	if err := a.db.Close(); err != nil {
+		return fmt.Errorf("close api postgres connection: %w", err)
+	}
+
+	a.db = nil
 	return nil
 }

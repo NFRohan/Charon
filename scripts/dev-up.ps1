@@ -37,9 +37,9 @@ try {
   Invoke-Checked { docker compose -f $composeFile up -d postgres redis rabbitmq } "Failed to start infrastructure containers."
   Wait-ForPostgres -ComposeFile $composeFile
 
-  Invoke-Checked { docker compose -f $composeFile run --rm migrate up } "Failed to apply database migrations."
+  Invoke-Checked { docker compose -f $composeFile run --rm --build migrate up } "Failed to apply database migrations."
 
-  Invoke-Checked { docker compose -f $composeFile up -d api worker } "Failed to start API and worker containers."
+  Invoke-Checked { docker compose -f $composeFile up -d --build api worker } "Failed to start API and worker containers."
 
   Write-Host "Charon local services are up."
   Write-Host "API health: http://localhost:8080/healthz"

@@ -9,10 +9,10 @@ $composeFile = Join-Path $repoRoot "deploy/docker-compose.yml"
 Push-Location $repoRoot
 try {
   if ([string]::IsNullOrWhiteSpace($SeedSet)) {
-    docker compose -f $composeFile run --rm seed
+    docker compose -f $composeFile run --rm --build seed
   }
   else {
-    docker compose -f $composeFile run --rm seed $SeedSet
+    docker compose -f $composeFile run --rm --build seed $SeedSet
   }
 
   if ($LASTEXITCODE -ne 0) {

@@ -24,7 +24,10 @@ func run() error {
 		return err
 	}
 
-	api := app.NewAPI(cfg)
+	api, err := app.NewAPI(cfg)
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

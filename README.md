@@ -102,6 +102,11 @@ The compose stack is intentionally minimal because the product is designed for s
 ## Notes
 
 - The Go service now includes validated config loading, application bootstrap wiring, a migration command, and a seed command. The business logic is still to be implemented.
+- Development auth seed credentials are loaded by `./scripts/seed.ps1`:
+  - student: `220041234` / `ChangeMe123!`
+  - driver: `DRV1001` / `ChangeMe123!`
+  - cashier: `CASH1001` / `ChangeMe123!`
+  - admin: `ADM1001` / `ChangeMe123!`
 - The mobile apps are real Flutter shells, not placeholder folders, so Android and iOS platform directories already exist where needed.
 - The generated Flutter Android projects may require either a compatible JDK or a Gradle wrapper upgrade on machines using very new Java versions.
 - Migration files live in `backend/migrations`, while environment-specific seed files live in `backend/seeds/<environment>`.

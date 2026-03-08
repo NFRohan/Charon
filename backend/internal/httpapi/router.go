@@ -4,17 +4,22 @@ import (
 	"net/http"
 
 	"charon/backend/internal/config"
+	"charon/backend/internal/domain/auth"
 
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(cfg config.Config) *gin.Engine {
+func NewRouter(cfg config.Config, deps Dependencies) (*gin.Engine, error) {
+	if err := deps.Validate(); err != nil {
+		return nil, err
+	}
+
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(requestIDMiddleware(), gin.Logger(), gin.Recovery())
 
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -37,26 +42,41 @@ func NewRouter(cfg config.Config) *gin.Engine {
 		})
 	})
 
-	for _, pattern := range []string{
-		"/auth/*path",
-		"/wallet/*path",
-		"/boardings/*path",
-		"/driver/*path",
-		"/admin/*path",
-		"/public/*path",
-		"/ws",
-	} {
-		router.Any(pattern, notImplementedHandler(pattern))
-	}
+	registerAuthRoutes(router.Group("/auth"), deps)
+
+	wallet := router.Group("/wallet")
+	wallet.Use(authenticationMiddleware(deps.Auth), requireRoles(auth.RoleStudent))
+	wallet.GET("/balance", notImplementedHandler("GET /wallet/balance"))
+	wallet.GET("/transactions", notImplementedHandler("GET /wallet/transactions"))
+	wallet.POST("/emergency-voucher/issue", notImplementedHandler("POST /wallet/emergency-voucher/issue"))
+
+	boardings := router.Group("/boardings")
+	boardings.Use(authenticationMiddleware(deps.Auth), requireRoles(auth.RoleStudent))
+	boardings.GET("/preview", notImplementedHandler("GET /boardings/preview"))
+	boardings.POST("", notImplementedHandler("POST /boardings"))
+
+	driver := router.Group("/driver")
+	driver.Use(authenticationMiddleware(deps.Auth), requireRoles(auth.RoleDriver))
+	driver.Any("/*path", notImplementedHandler("/driver"))
+
+	admin := router.Group("/admin")
+	admin.Use(authenticationMiddleware(deps.Auth), requireRoles(auth.RoleCashier, auth.RoleAdmin, auth.RoleTechnicalAdmin))
+	admin.Any("/*path", notImplementedHandler("/admin"))
+
+	router.GET("/ws", authenticationMiddleware(deps.Auth), requireRoles(auth.RoleStudent, auth.RoleDriver), notImplementedHandler("GET /ws"))
+
+	public := router.Group("/public")
+	public.Any("/*path", notImplementedHandler("/public"))
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error_code": "NOT_FOUND",
 			"message":    "No route matches the requested path.",
+			"trace_id":   traceIDFromContext(c),
 		})
 	})
 
-	return router
+	return router, nil
 }
 
 func notImplementedHandler(pattern string) gin.HandlerFunc {
@@ -64,6 +84,7 @@ func notImplementedHandler(pattern string) gin.HandlerFunc {
 		c.JSON(http.StatusNotImplemented, gin.H{
 			"error_code": "NOT_IMPLEMENTED",
 			"message":    "This endpoint is scaffolded but not implemented yet.",
+			"trace_id":   traceIDFromContext(c),
 			"route":      pattern,
 		})
 	}
