@@ -101,7 +101,7 @@ The compose stack is intentionally minimal because the product is designed for s
 
 ## Notes
 
-- The Go service now includes validated config loading, application bootstrap wiring, a migration command, and a seed command. The business logic is still to be implemented.
+- The Go service now includes validated config loading, application bootstrap wiring, auth and session flows, migration and seed commands, and the first wallet read APIs for balance and transaction history.
 - Development auth seed credentials are loaded by `./scripts/seed.ps1`:
   - student: `220041234` / `ChangeMe123!`
   - driver: `DRV1001` / `ChangeMe123!`

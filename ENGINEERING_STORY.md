@@ -887,6 +887,24 @@ Tradeoff accepted:
 - The spec surface is now broader and more document-heavy than a minimal prototype would require.
 - That is acceptable because Charon is intentionally being built as a portfolio-grade, implementation-ready system rather than a loose concept sketch.
 
+### Decision 027: Implement wallet reads on top of account snapshots before boarding writes
+
+Decision:
+
+- Build Sprint 4 around `GET /wallet/balance` and `GET /wallet/transactions` before any fare-debit write path is added.
+- Treat `wallet_accounts.available_balance_minor` as the read-optimized balance source and use ledger history only for transaction listing and resulting-balance reconstruction.
+
+Reasoning:
+
+- The boarding engine will rely on wallet reads for preview, receipts, and user trust, so these APIs should exist before concurrent money-moving flows land.
+- Reading directly from account snapshots keeps the API fast and simple while preserving ledger correctness because the snapshot is updated in the same transaction as future ledger writes.
+- This sequence also gives the student app a stable early integration surface without forcing boarding writes to be partially implemented.
+
+Tradeoff accepted:
+
+- Transaction history currently reconstructs resulting balances from ledger deltas and the current account snapshot rather than from a separately stored per-transaction snapshot.
+- That is acceptable for the current scale and schema because the read path remains deterministic and the write path will still be the source of truth.
+
 ## Ongoing Story Format
 
 Add new entries using this format as the build progresses:

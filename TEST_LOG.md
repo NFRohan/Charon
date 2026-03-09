@@ -106,3 +106,30 @@ This log records what was actually run, when it was run, what passed, and any no
   - Production startup now rejects the exact Docker Compose development placeholder secrets for access-token signing and refresh-token pepper values.
   - Auth now selects stronger Argon2id parameters in production while keeping development and test defaults cheap enough for local iteration.
   - Existing DB-backed session validation still means logout revocation is enforced on authenticated requests immediately, rather than waiting for access-token expiry.
+
+### Sprint 4 Wallet Read API Verification
+
+- `Phase`: Sprint 4
+- `Scope`: wallet balance and transaction history service wiring, route protection, query validation, and handler responses
+- `Environment`: local Windows workstation
+- `Checks`:
+  - `gofmt -w backend/internal/domain/wallet/*.go backend/internal/httpapi/*.go backend/internal/app/api.go`
+  - `go test ./...` in `backend`
+- `Result`: PASS
+- `Notes`:
+  - `GET /wallet/balance` and `GET /wallet/transactions` are now implemented instead of returning scaffolded `501` responses.
+  - Wallet reads are backed by account snapshots and ledger history rather than ad hoc balance calculation in the HTTP layer.
+  - Initial unit verification completed before Docker became available again.
+  - Follow-up live verification was then completed against the local Compose stack after rebuilding the API image and reseeding the environment.
+  - Live checks confirmed:
+    - `GET /healthz` returned `200 OK`
+    - student login returned `200 OK`
+    - unauthenticated `GET /wallet/balance` returned `401 AUTHORIZATION_REQUIRED`
+    - driver-authenticated `GET /wallet/balance` returned `403 INSUFFICIENT_ROLE`
+    - student-authenticated `GET /wallet/balance` returned the expected seeded fixture values
+    - invalid pagination on `GET /wallet/transactions?limit=abc&offset=-1` returned `400 VALIDATION_ERROR` with field-level errors
+    - transaction listing returned correct ordering, route or bus projection, total count, and resulting balances
+  - `limit=500` was clamped to `100` in the live response
+  - `limit=1&offset=1` returned the expected second transaction page
+  - Direct Postgres verification confirmed the live API matched the fixture wallet balance, overdraft limit, active emergency-voucher count, and transaction metadata used for validation.
+  - After validation, the temporary fixture rows were discarded by rebuilding the Postgres volume and rerunning the normal development seed so the current local environment remains in the standard baseline state.
