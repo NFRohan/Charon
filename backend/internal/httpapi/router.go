@@ -46,8 +46,7 @@ func NewRouter(cfg config.Config, deps Dependencies) (*gin.Engine, error) {
 
 	wallet := router.Group("/wallet")
 	wallet.Use(authenticationMiddleware(deps.Auth), requireRoles(auth.RoleStudent))
-	wallet.GET("/balance", notImplementedHandler("GET /wallet/balance"))
-	wallet.GET("/transactions", notImplementedHandler("GET /wallet/transactions"))
+	registerWalletRoutes(wallet, deps)
 	wallet.POST("/emergency-voucher/issue", notImplementedHandler("POST /wallet/emergency-voucher/issue"))
 
 	boardings := router.Group("/boardings")

@@ -11,6 +11,7 @@ import (
 
 	"charon/backend/internal/config"
 	"charon/backend/internal/domain/auth"
+	"charon/backend/internal/domain/wallet"
 )
 
 type stubAuthService struct {
@@ -43,6 +44,21 @@ func (s stubAuthService) AuthenticateAccessToken(_ context.Context, accessToken 
 	return identity, nil
 }
 
+type stubWalletService struct {
+	balanceSummary  wallet.BalanceSummary
+	balanceErr      error
+	transactions    wallet.TransactionHistoryPage
+	transactionsErr error
+}
+
+func (s stubWalletService) GetBalanceSummary(_ context.Context, _ string) (wallet.BalanceSummary, error) {
+	return s.balanceSummary, s.balanceErr
+}
+
+func (s stubWalletService) ListTransactions(_ context.Context, _ string, _ wallet.ListTransactionsParams) (wallet.TransactionHistoryPage, error) {
+	return s.transactions, s.transactionsErr
+}
+
 func TestLoginRouteReturnsAuthEnvelope(t *testing.T) {
 	t.Parallel()
 
@@ -61,7 +77,7 @@ func TestLoginRouteReturnsAuthEnvelope(t *testing.T) {
 				FareExempt: false,
 			},
 		},
-	})
+	}, stubWalletService{})
 
 	requestBody, err := json.Marshal(map[string]string{
 		"login_id": "220041234",
@@ -97,7 +113,7 @@ func TestLoginRouteReturnsAuthEnvelope(t *testing.T) {
 func TestProtectedStudentRouteRequiresAuth(t *testing.T) {
 	t.Parallel()
 
-	router := newTestRouter(t, stubAuthService{})
+	router := newTestRouter(t, stubAuthService{}, stubWalletService{})
 
 	request := httptest.NewRequest(http.MethodGet, "/wallet/balance", nil)
 	recorder := httptest.NewRecorder()
@@ -119,6 +135,15 @@ func TestProtectedStudentRouteAllowsStudent(t *testing.T) {
 				User: auth.User{ID: "usr_123", Role: auth.RoleStudent, Status: auth.UserStatusActive},
 			},
 		},
+	}, stubWalletService{
+		balanceSummary: wallet.BalanceSummary{
+			UserID:                         "usr_123",
+			AccountStatus:                  wallet.AccountStatusActive,
+			BalanceMinor:                   1800,
+			OverdraftLimitMinor:            200,
+			FareExempt:                     false,
+			AvailableEmergencyVoucherCount: 1,
+		},
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/wallet/balance", nil)
@@ -127,10 +152,99 @@ func TestProtectedStudentRouteAllowsStudent(t *testing.T) {
 
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d", recorder.Code)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	assertErrorCode(t, recorder.Body.Bytes(), "NOT_IMPLEMENTED")
+
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response["balance_minor"] != float64(1800) {
+		t.Fatalf("expected balance_minor 1800, got %#v", response["balance_minor"])
+	}
+}
+
+func TestWalletTransactionsRejectsInvalidPagination(t *testing.T) {
+	t.Parallel()
+
+	router := newTestRouter(t, stubAuthService{
+		authenticatedByJWT: map[string]auth.AuthenticatedIdentity{
+			"student-token": {
+				User: auth.User{ID: "usr_123", Role: auth.RoleStudent, Status: auth.UserStatusActive},
+			},
+		},
+	}, stubWalletService{})
+
+	request := httptest.NewRequest(http.MethodGet, "/wallet/transactions?limit=abc&offset=-1", nil)
+	request.Header.Set("Authorization", "Bearer student-token")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+	assertErrorCode(t, recorder.Body.Bytes(), "VALIDATION_ERROR")
+}
+
+func TestWalletTransactionsReturnsPage(t *testing.T) {
+	t.Parallel()
+
+	routeCode := "A"
+	busCode := "1042"
+	now := time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC)
+	router := newTestRouter(t, stubAuthService{
+		authenticatedByJWT: map[string]auth.AuthenticatedIdentity{
+			"student-token": {
+				User: auth.User{ID: "usr_123", Role: auth.RoleStudent, Status: auth.UserStatusActive},
+			},
+		},
+	}, stubWalletService{
+		transactions: wallet.TransactionHistoryPage{
+			Items: []wallet.TransactionHistoryItem{
+				{
+					TransactionID:         "tx_123",
+					Type:                  "BOARDING_FARE",
+					AmountMinor:           2000,
+					RouteCode:             &routeCode,
+					BusCode:               &busCode,
+					Status:                "SUCCESS",
+					ResultingBalanceMinor: 1800,
+					CreatedAt:             now,
+				},
+			},
+			Limit:  20,
+			Offset: 0,
+			Total:  1,
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/wallet/transactions", nil)
+	request.Header.Set("Authorization", "Bearer student-token")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	var response struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(response.Items))
+	}
+	if response.Total != 1 {
+		t.Fatalf("expected total 1, got %d", response.Total)
+	}
 }
 
 func TestAdminRouteRejectsStudentRole(t *testing.T) {
@@ -142,7 +256,7 @@ func TestAdminRouteRejectsStudentRole(t *testing.T) {
 				User: auth.User{ID: "usr_123", Role: auth.RoleStudent, Status: auth.UserStatusActive},
 			},
 		},
-	})
+	}, stubWalletService{})
 
 	request := httptest.NewRequest(http.MethodGet, "/admin/students", nil)
 	request.Header.Set("Authorization", "Bearer student-token")
@@ -156,10 +270,13 @@ func TestAdminRouteRejectsStudentRole(t *testing.T) {
 	assertErrorCode(t, recorder.Body.Bytes(), "INSUFFICIENT_ROLE")
 }
 
-func newTestRouter(t *testing.T, authService AuthService) http.Handler {
+func newTestRouter(t *testing.T, authService AuthService, walletService WalletService) http.Handler {
 	t.Helper()
 
-	router, err := NewRouter(config.Config{AppEnv: config.AppEnvTest}, Dependencies{Auth: authService})
+	router, err := NewRouter(config.Config{AppEnv: config.AppEnvTest}, Dependencies{
+		Auth:   authService,
+		Wallet: walletService,
+	})
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}

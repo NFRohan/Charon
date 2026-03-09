@@ -11,6 +11,7 @@ import (
 
 	"charon/backend/internal/config"
 	"charon/backend/internal/domain/auth"
+	"charon/backend/internal/domain/wallet"
 	"charon/backend/internal/httpapi"
 	"charon/backend/internal/platform/logger"
 	"charon/backend/internal/platform/postgres"
@@ -68,8 +69,15 @@ func NewAPI(cfg config.Config) (*API, error) {
 		return nil, fmt.Errorf("create auth service: %w", err)
 	}
 
+	walletService, err := wallet.NewService(wallet.NewPostgresRepository(db))
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("create wallet service: %w", err)
+	}
+
 	router, err := httpapi.NewRouter(cfg, httpapi.Dependencies{
-		Auth: authService,
+		Auth:   authService,
+		Wallet: walletService,
 	})
 	if err != nil {
 		_ = db.Close()
